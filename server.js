@@ -273,15 +273,15 @@ app.get("/stream_vid/", function (req, res) {
     })();
 });
 
-// host, port and path to the RTMP stream
-var host = '127.0.0.1';
-var port = '1935';
-var path = '/live/test';
+// // host, port and path to the RTMP stream
+// var host = '127.0.0.1';
+// var port = '1935';
+// var path = '/live/test';
 
 // function callback() { console.log("done streaming")}// do something when stream ends and encoding finshes }
 
 (async () => {
-    var host = 'localhost'
+    var host = '127.0.0.1'
     var port = '1935'
     var path = '/live/test'
     
@@ -302,6 +302,9 @@ var path = '/live/test';
       ]).output('public/videos/output.m3u8')
         .on('progress', (info) => {
         console.log("squeezing to hls " + info);
+        })
+        .on('err', (err) => {
+            console.log("error squeezin vidz" + err);
         })
         .on('end', () => {
         console.log("done squeezin vidz");

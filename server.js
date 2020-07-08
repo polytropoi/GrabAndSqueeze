@@ -196,20 +196,22 @@ app.get("/convert_to_ogg/", function (req, res) {
     //     });
     // });
     (async () => {
+            // ffmpeg({source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'})
             ffmpeg({source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'})
             .setFfmpegPath(ffmpeg_static)
             .audioBitrate(256)
             .audioCodec('vorbis')
             .format('ogg')
-            .on('progress', function(info) {
-                console.log('progress ' + info.percent + '%');
-            })
+
             .on('end', () => {
                 // ...
                 console.log("squoze on ogg");
             })
             .on('error', err => {
                 console.error(err);
+            })
+            .on('progress', function(info) {
+                console.log('progress ' + info.percent + '%');
             })
             .save('test.ogg');
 

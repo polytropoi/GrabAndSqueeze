@@ -251,7 +251,7 @@ app.get("/stream_vid/", function (req, res) {
         var port = '1935'
         var path = '/live/test'
         
-        fmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
+        ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
             '-c:v libx264',
             '-c:a aac',
             '-ac 1',
@@ -273,12 +273,10 @@ app.get("/stream_vid/", function (req, res) {
     })();
 });
 
-var ffmpeg = require('fluent-ffmpeg')
-
 // host, port and path to the RTMP stream
-var host = '127.0.0.1'
-var port = '1935'
-var path = '/live/test'
+var host = '127.0.0.1';
+var port = '1935';
+var path = '/live/test';
 
 // function callback() { console.log("done streaming")}// do something when stream ends and encoding finshes }
 
@@ -287,7 +285,7 @@ var path = '/live/test'
     var port = '1935'
     var path = '/live/test'
     
-    fmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
+    ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
         '-c:v libx264',
         '-c:a aac',
         '-ac 1',

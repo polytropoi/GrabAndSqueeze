@@ -1,5 +1,6 @@
 //copyright 2020 servicemedia.net
 var express = require("express")
+
 , ffmpeg = require('fluent-ffmpeg')
 , ffmpeg_static = require('ffmpeg-static')
     , puppeteer = require('puppeteer')
@@ -24,9 +25,9 @@ var appName = "ServiceMedia";
 var topName = process.env.ROOT_NAME;
 var requirePayment = true; //if subscription is required to login, true for servicemedia
 
-var adminEmail = "polytropoi@gmail.com";
+var adminEmail = process.env.ADMIN_EMAIL;
 
-var domainAdminEmail = "polytropoi@gmail.com";
+var domainAdminEmail = process.env.DOMAIN_ADMIN_EMAIL;
 
 
 var whitelist = ['https://servicemedia.net', 'http://localhost:4000'];
@@ -66,10 +67,10 @@ var oneDay = 86400000;
     //     }
     // });
 
-var databaseUrl = process.env.MONGO_URL; //servicemedia connstring
+var databaseUrl = process.env.MONGO_URL; 
 
 var collections = ["acl", "auth_req", "domains", "apps", "assets", "models", "users", "audio_items", "text_items", "audio_item_keys", "image_items", "video_items",
-    "obj_items", "paths", "keys", "scores", "attributes","achievements","activity", "purchases", "storeitems", "scenes", "groups", "weblinks", "locations", "iap"];
+    "obj_items", "paths", "keys", "scores", "attributes","achievements","activity", "purchases", "storeitems", "scenes", "groups", "weblinks"];
 
 var db = mongojs(databaseUrl, collections);
 
@@ -196,7 +197,6 @@ app.get("/convert_to_ogg/", function (req, res) {
     //     });
     // });
     (async () => {
-            // ffmpeg({source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'})
             ffmpeg({source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'})
             .setFfmpegPath(ffmpeg_static)
             .audioBitrate(256)
@@ -205,7 +205,7 @@ app.get("/convert_to_ogg/", function (req, res) {
 
             .on('end', () => {
                 // ...
-                console.log("squoze on ogg");
+                console.log("done squoze an ogg");
             })
             .on('error', err => {
                 console.error(err);
@@ -214,9 +214,98 @@ app.get("/convert_to_ogg/", function (req, res) {
                 console.log('progress ' + info.percent + '%');
             })
             .save('test.ogg');
-
+            // fmpeg({ timeout: 432000, source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'}).addOptions([
+            //     '-profile:v baseline', // baseline profile (level 3.0) for H264 video codec
+            //     '-level 3.0', 
+            //     '-s 640x360',          // 640px width, 360px height output video dimensions
+            //     '-start_number 0',     // start the first .ts segment at index 0
+            //     '-hls_time 10',        // 10 second segment duration
+            //     '-hls_list_size 0',    // Maxmimum number of playlist entries (0 means all entries/infinite)
+            //     '-f hls'               // HLS format
+            //   ]).output('output.m3u8').on('end', callback).run()
 
     })();
 });
 
 
+app.get("/stream_vid/", function (req, res) {
+    //send "Hello World" to the client as html
+    // console.log("trina scrape...");
+    // let url = "/practikorkus_20191210.mp3";
+    console.log(ffmpeg_static);
+    // let stream = http.get('http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3');
+    // let file = fs.createWriteStream("tmp.ogg");
+    // http.get("http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3", res => {
+    //     res.pipe(file);
+    //     let data = "";
+
+    //     res.on("data", d => {
+    //         data += d;
+    //     });
+    //     res.on("end", () => {
+    //         console.log("done");
+    //     });
+    // });
+    (async () => {
+        var host = 'localhost'
+        var port = '1935'
+        var path = '/live/test'
+        
+        fmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
+            '-c:v libx264',
+            '-c:a aac',
+            '-ac 1',
+            '-strict -2',
+            '-crf 18',
+            '-profile:v baseline',
+            '-maxrate 400k',
+            '-bufsize 1835k',
+            '-pix_fmt yuv420p',
+            '-hls_time 10',
+            '-hls_list_size 6',
+            '-hls_wrap 10',
+            '-start_number 1'
+          ]).output('public/videos/output.m3u8').on('end', () => {
+            // ...
+            console.log("done squeezin vidz");
+        //   })
+        })
+    })();
+});
+
+var ffmpeg = require('fluent-ffmpeg')
+
+// host, port and path to the RTMP stream
+var host = '127.0.0.1'
+var port = '1935'
+var path = '/live/test'
+
+// function callback() { console.log("done streaming")}// do something when stream ends and encoding finshes }
+
+(async () => {
+    var host = 'localhost'
+    var port = '1935'
+    var path = '/live/test'
+    
+    fmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
+        '-c:v libx264',
+        '-c:a aac',
+        '-ac 1',
+        '-strict -2',
+        '-crf 18',
+        '-profile:v baseline',
+        '-maxrate 400k',
+        '-bufsize 1835k',
+        '-pix_fmt yuv420p',
+        '-hls_time 10',
+        '-hls_list_size 6',
+        '-hls_wrap 10',
+        '-start_number 1'
+      ]).output('public/videos/output.m3u8')
+        .on('progress', (info) => {
+        console.log("squeezing to hls " + info);
+        })
+        .on('end', () => {
+        console.log("done squeezin vidz");
+        })
+})();

@@ -32,15 +32,6 @@ var domainAdminEmail = process.env.DOMAIN_ADMIN_EMAIL;
 
 var whitelist = ['https://servicemedia.net', 'http://localhost:4000'];
 
-// var corsOptions = function (origin) {
-// //    console.log("checking vs whitelist:" + origin);
-//     if ( whitelist.indexOf(origin) !== -1 ) {
-//         return true;
-//     } else {
-//         return true; //fornow...
-//     }
-// };
-
 var oneDay = 86400000;
 
     // app.use (function (req, res, next) {
@@ -103,6 +94,7 @@ var maxItems = 1000;
 
 var aws = require('aws-sdk');
 const { lookupService } = require("dns");
+const { callbackify } = require("util");
 aws.config.loadFromPath('conf.json');
 var ses = new aws.SES({apiVersion : '2010-12-01'});
 var s3 = new aws.S3();
@@ -116,29 +108,33 @@ server.listen(process.env.PORT || 4000, function(){
     console.log("Express server listening on port 4000");
 });
 
+function validURL(str) {
+    var pattern = new RegExp('^(https?:\\/\\/)?'+ // protocol
+      '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|'+ // domain name
+      '((\\d{1,3}\\.){3}\\d{1,3}))'+ // OR ip (v4) address
+      '(\\:\\d+)?(\\/[-a-z\\d%_.~+]*)*'+ // port and path
+      '(\\?[;&a-z\\d%_.~+=-]*)?'+ // query string
+      '(\\#[-a-z\\d_]*)?$','i'); // fragment locator
+    return !!pattern.test(str);
+  }
+
 app.get("/", function (req, res) {
     //send "Hello World" to the client as html
         res.send("howdy!");
 });
 
 app.get("/scrape_webpage/:pageurl", function (req, res) {
-    //send "Hello World" to the client as html
-    // console.log("trina scrape...");
     let url = "https://" + req.params.pageurl;
-    if (!url)
-    url = "https://xrswim.com";
-
     (async () => {
-        console.log("trina scrape...");
+        console.log("tryna scrape " + url);
         let response = "";
         const browser = await puppeteer.launch();
         const page = await browser.newPage();
-        // await page.setViewport({ width: 1024, height: auto});
         const override = Object.assign(page.viewport(), {width: 1024, height: 1024});
         await page.setViewport(override);
         await page.goto(url);
-        const pagepic = await page.screenshot({fullPage: true});
-        sharp(pagepic)
+        const pagepic = await page.screenshot({fullPage: false});
+        await sharp(pagepic)
         .resize({
           kernel: sharp.kernel.nearest,
           width: 1024,
@@ -150,7 +146,39 @@ app.get("/scrape_webpage/:pageurl", function (req, res) {
             let buf = Buffer.from(data);
             let encodedData = buf.toString('base64');
             response = "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
-            console.log("response: " + response);
+            // console.log("response: " + response);
+            // res.send(response);
+        })
+        .catch(err => {console.log(err); res.send(err);});
+        await sharp(pagepic)
+        .resize({
+          kernel: sharp.kernel.nearest,
+          width: 512,
+          width: 512,
+          fit: 'cover'
+        })
+        .toBuffer()
+        .then(data => {
+            let buf = Buffer.from(data);
+            let encodedData = buf.toString('base64');
+            response = response + "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
+            // console.log("response: " + response);
+            // res.send(response);
+        })
+        .catch(err => {console.log(err); res.send(err);});
+        await sharp(pagepic)
+        .resize({
+          kernel: sharp.kernel.nearest,
+          width: 256,
+          width: 256,
+          fit: 'cover'
+        })
+        .toBuffer()
+        .then(data => {
+            let buf = Buffer.from(data);
+            let encodedData = buf.toString('base64');
+            response = response + "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
+            // console.log("response: " + response);
             res.send(response);
         })
         .catch(err => {console.log(err); res.send(err);});
@@ -158,31 +186,175 @@ app.get("/scrape_webpage/:pageurl", function (req, res) {
     })();
 });
 
-app.post('/resize_uploaded_picture/', function (req, res) {
-    console.log("tryna resize pic with key: " + req.body._id);
-    var o_id = ObjectID(req.body._id);
-    db.images.findOne({"_id": o_id}, function(err, image) {
+app.post("/scrape_webpage/", function (req, res) {
+    if (validURL(req.body.pageurl)) {
+    let url = req.body.pageurl;
+    (async () => {
+        console.log("trina scrape...");
+        let response = "";
+        const browser = await puppeteer.launch();
+        const page = await browser.newPage();
+        const override = Object.assign(page.viewport(), {width: 1024, height: 1024});
+        await page.setViewport(override);
+        await page.goto(url);
+        const pagepic = await page.screenshot({fullPage: true});
+        await sharp(pagepic)
+        .resize({
+          kernel: sharp.kernel.nearest,
+          width: 1024,
+          width: 1024,
+          fit: 'fill'
+        })
+        .toBuffer()
+        .then(data => {
+            let buf = Buffer.from(data);
+            let encodedData = buf.toString('base64');
+            response = "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
+            // console.log("response: " + response);
+            res.send(response);
+        })
+        .catch(err => {console.log(err); res.send(err);});
+        await sharp(pagepic)
+        .resize({
+          kernel: sharp.kernel.nearest,
+          width: 512,
+          width: 512,
+          fit: 'cover'
+        })
+        .toBuffer()
+        .then(data => {
+            let buf = Buffer.from(data);
+            let encodedData = buf.toString('base64');
+            response = response + "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
+            // console.log("response: " + response);
+            res.send(response);
+        })
+        .catch(err => {console.log(err); res.send(err);});
+        await sharp(pagepic)
+        .resize({
+          kernel: sharp.kernel.nearest,
+          width: 256,
+          width: 256,
+          fit: 'cover'
+        })
+        .toBuffer()
+        .then(data => {
+            let buf = Buffer.from(data);
+            let encodedData = buf.toString('base64');
+            response = response + "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
+            // console.log("response: " + response);
+            res.send(response);
+        })
+        .catch(err => {console.log(err); res.send(err);});
+        await browser.close();
+        })();
+    } else {
+        res.send("invalid url");
+    }
+});
+
+app.get('/resize_uploaded_picture/:_id', function (req, res) {
+    console.log("tryna resize pic with key: " + req.params._id);
+    var o_id = ObjectID(req.params._id);
+    db.image_items.findOne({"_id": o_id}, function(err, image) {
         if (err || !image) {
-            console.log("error getting location item: " + err);
+            console.log("error getting image item: " + err);
+            callback("no image in db");
+            res.send("no image in db");
         } else {
-            var params = {Bucket: 'archive1', Key: "archived/" + req.body._id + "/" + itemKey};
-            s3.getSignedUrl('getObject', params, function (err, url) {
+            var params = {Bucket: 'servicemedia', Key: "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename};
+            // var params = {Bucket: 'servicemedia', Key: "users/" + picture_item.userID + "/" + picture_item._id + "." + originalName};
+            s3.headObject(params, function (err, url) {
                 if (err) {
                     console.log(err);
+                    res.send("no image in bucket");
                 } else {
                     console.log("The URL is", url);
+                    s3.getObject(params, function (err, data) {
+                    if (err) {
+                        console.log(err);
+                        res.send("couldn't get no image data");
+                    } else {
+                        (async () => { //do these jerbs one at a time..
+                        await sharp(data)
+                        .resize({
+                          kernel: sharp.kernel.nearest,
+                          width: 1024,
+                          width: 1024,
+                          fit: 'cover'
+                        })
+                        .toBuffer()
+                        .then(rdata => {
+                            let buf = Buffer.from(rdata);
+                            let encodedData = buf.toString('base64');
+                            s3.putObject({
+                                Bucket: 'servicemedia',
+                                Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                                Body: encodedData
+                              }).done(function (resp) {
+                                console.log('Successfully uploaded standard pic for ' + image._id);
+                            });
+                        })
+                        .catch(err => {console.log(err); res.end(err);});
+                        await sharp(data)
+                        .resize({
+                          kernel: sharp.kernel.nearest,
+                          width: 512,
+                          width: 512,
+                          fit: 'cover'
+                        })
+                        .toBuffer()
+                        .then(rdata => {
+                            let buf = Buffer.from(rdata);
+                            let encodedData = buf.toString('base64');
+                            s3.putObject({
+                                Bucket: 'servicemedia',
+                                Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                                Body: encodedData
+                              }).done(function (resp) {
+                                console.log('Successfully uploaded half pic for ' + image._id );
+                            });
+
+                        })
+                        .catch(err => {console.log(err); res.end(err);});
+                        await sharp(data)
+                        .resize({
+                          kernel: sharp.kernel.nearest,
+                          width: 256,
+                          width: 256,
+                          fit: 'cover'
+                        })
+                        .toBuffer()
+                        .then(rdata => {
+                            let buf = Buffer.from(rdata);
+                            let encodedData = buf.toString('base64');
+                            s3.putObject({
+                                Bucket: 'servicemedia',
+                                Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                                Body: encodedData
+                              }).done(function (resp) {
+                                console.log('Successfully uploaded quarter pic for ' + image._id);
+                            });
+                        })
+                        .catch(err => {console.log(err); res.end(err);});
+                        res.send("resize successful!");
+                        })();//end async
+                    }
+                    });
                 }
             });
-            console.log("returning image item : " + image);
+            console.log("returning image item : " + JSON.stringify(image));
         }
     });
 });
 
-app.get("/convert_to_ogg/", function (req, res) {
+
+app.post("/convert_to_ogg/", function (req, res) {
     //send "Hello World" to the client as html
     // console.log("trina scrape...");
     // let url = "/practikorkus_20191210.mp3";
-    console.log(ffmpeg_static);
+
+    console.log("tryna convert_to_ogg with audio id " + req.body._id);
     // let stream = http.get('http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3');
     // let file = fs.createWriteStream("tmp.ogg");
     // http.get("http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3", res => {
@@ -247,31 +419,71 @@ app.get("/stream_vid/", function (req, res) {
     //     });
     // });
     (async () => {
-        var host = 'localhost'
-        var port = '1935'
-        var path = '/live/test'
+        // var host = '192.168.1.160';
+        // var port = '1935';
+        // var path = '/live/test';
         
-        ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
-            '-c:v libx264',
-            '-c:a aac',
-            '-ac 1',
-            '-strict -2',
-            '-crf 18',
-            '-profile:v baseline',
-            '-maxrate 400k',
-            '-bufsize 1835k',
-            '-pix_fmt yuv420p',
-            '-hls_time 10',
-            '-hls_list_size 6',
-            '-hls_wrap 10',
-            '-start_number 1'
-          ]).output('public/videos/output.m3u8').on('end', () => {
-            // ...
-            console.log("done squeezin vidz");
-        //   })
+    //     ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
+    //         '-c:v libx264',
+    //         '-c:a aac',
+    //         '-ac 1',
+    //         '-strict -2',
+    //         '-crf 18',
+    //         '-profile:v baseline',
+    //         '-maxrate 400k',
+    //         '-bufsize 1835k',
+    //         '-pix_fmt yuv420p',
+    //         '-hls_time 10',
+    //         '-hls_list_size 6',
+    //         '-hls_wrap 10',
+    //         '-start_number 1'
+    //       ]).output('public/videos/output.m3u8').on('end', () => {
+    //         // ...
+    //         console.log("done squeezin vidz");
+    //     //   })
+    //     })
+    //     
+        let path = ffmpeg_static;
+        var proc = ffmpeg('rtmp://192.168.1.160:1935/live/test', { timeout: 432000 })
+        .setFfmpegPath(path)
+        // set video bitrate
+        .videoBitrate(1024)
+        // set h264 preset
+        // .addOption('preset','superfast')
+        // set target codec
+        .videoCodec('libx264')
+        // set audio bitrate
+        .audioBitrate('128k')
+        // set audio codec
+        .withAudioCodec('aac')
+
+        .format('mp4')
+        // set number of audio channels
+        .audioChannels(2)
+        // set hls segments time
+        .addOption('-hls_time', 10)
+        // include all the segments in the list
+        .addOption('-hls_list_size',0)
+        // .on('progress', function(prog) {
+        //     console.log(prog);
+        // })
+        // setup event handlers
+        .on('end', function() {
+            console.log('file has been converted succesfully');
         })
-    })();
+        .on('error', function(err) {
+            console.log('an error happened: ' + err.message);
+        })
+        // save to file
+        .save('public/videos/output.m3u8');
+
+        // proc = proc
+        // proc.setFfmpegPath(ffmpeg_static);
+        })();
+
 });
+
+
 
 // // host, port and path to the RTMP stream
 // var host = '127.0.0.1';
@@ -280,33 +492,34 @@ app.get("/stream_vid/", function (req, res) {
 
 // function callback() { console.log("done streaming")}// do something when stream ends and encoding finshes }
 
-(async () => {
-    var host = '127.0.0.1'
-    var port = '1935'
-    var path = '/live/test'
+// (async () => {
+//     var host = '127.0.0.1'
+//     var port = '1935'
+//     var path = '/live/test'
     
-    ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
-        '-c:v libx264',
-        '-c:a aac',
-        '-ac 1',
-        '-strict -2',
-        '-crf 18',
-        '-profile:v baseline',
-        '-maxrate 400k',
-        '-bufsize 1835k',
-        '-pix_fmt yuv420p',
-        '-hls_time 10',
-        '-hls_list_size 6',
-        '-hls_wrap 10',
-        '-start_number 1'
-      ]).output('public/videos/output.m3u8')
-        .on('progress', (info) => {
-        console.log("squeezing to hls " + info);
-        })
-        .on('err', (err) => {
-            console.log("error squeezin vidz" + err);
-        })
-        .on('end', () => {
-        console.log("done squeezin vidz");
-        })
-})();
+//     ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
+//         '-c:v libx264',
+//         '-c:a aac',
+//         '-ac 1',
+//         '-strict -2',
+//         '-crf 18',
+//         '-profile:v baseline',
+//         '-maxrate 400k',
+//         '-bufsize 1835k',
+//         '-pix_fmt yuv420p',
+//         '-hls_time 10',
+//         '-hls_list_size 6',
+//         '-hls_wrap 10',
+//         '-start_number 1'
+//       ]).output('public/videos/output.m3u8')
+//         .on('progress', (info) => {
+//             console.log("squeezing to hls " + info);
+//         })
+//         .on('err', (err) => {
+//             console.log("error squeezin vidz" + err);
+//         })
+//         .on('end', () => {
+//             console.log("done squeezin vidz");
+//         })
+//         res.send("maybe streaming now at /public/videos/")
+// })();

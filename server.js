@@ -1,6 +1,6 @@
 //copyright 2020 servicemedia.net
 var express = require("express")
-
+, https = require('https')
 , ffmpeg = require('fluent-ffmpeg')
 , ffmpeg_static = require('ffmpeg-static')
     , puppeteer = require('puppeteer')
@@ -116,6 +116,37 @@ function validURL(str) {
       '(\\?[;&a-z\\d%_.~+=-]*)?'+ // query string
       '(\\#[-a-z\\d_]*)?$','i'); // fragment locator
     return !!pattern.test(str);
+  }
+
+
+  async function getObject (bucket, objectKey) {
+    try {
+      const params = {
+        Bucket: bucket,
+        Key: objectKey 
+      }
+  
+      const data = await s3.getObject(params).promise();
+  
+      return data.Body;
+    } catch (e) {
+      throw new Error(`Could not retrieve file from S3: ${e.message}`)
+    }
+  }
+  async function putObject (bucket, objectKey, data) {
+    try {
+      const params = {
+        Bucket: bucket,
+        Key: objectKey,
+        Body: data 
+      }
+  
+      const data = await s3.putObject(params).promise();
+  
+      return data.Body;
+    } catch (e) {
+      throw new Error(`Could not retrieve file from S3: ${e.message}`)
+    }
   }
 
 app.get("/", function (req, res) {
@@ -270,13 +301,16 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
                     res.send("no image in bucket");
                 } else {
                     console.log("The URL is", url);
-                    s3.getObject(params, function (err, data) {
+                    // (async () => {
+                    // await s3.getObject(params, function (err, data) {
                     if (err) {
                         console.log(err);
-                        res.send("couldn't get no image data");
+                        res.end("couldn't get no image data");
                     } else {
                         (async () => { //do these jerbs one at a time..
-                        await sharp(data)
+                        //  getObject 
+                        let data = await s3.getObject(params).promise();
+                        await sharp(data.Body)
                         .resize({
                           kernel: sharp.kernel.nearest,
                           width: 1024,
@@ -285,18 +319,23 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
                         })
                         .toBuffer()
                         .then(rdata => {
-                            let buf = Buffer.from(rdata);
-                            let encodedData = buf.toString('base64');
-                            s3.putObject({
+                            // let buf = Buffer.from(rdata);
+                            let encodedData = rdata.toString('base64');
+                            console.log(encodedData)
+s3.putObject({
                                 Bucket: 'servicemedia',
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
                                 Body: encodedData
-                              }).done(function (resp) {
-                                console.log('Successfully uploaded standard pic for ' + image._id);
-                            });
-                        })
+                              }, function (error, resp) {
+                                  if (error) {
+                                    console.log('error putting  pic' + error);
+                                  } else {
+                                    console.log('Successfully uploaded  pic with response: ' + resp);
+                                  }
+                              })//putObject returns request not promise, must add this to promisify
+                            })
                         .catch(err => {console.log(err); res.end(err);});
-                        await sharp(data)
+                        await sharp(data.Body)
                         .resize({
                           kernel: sharp.kernel.nearest,
                           width: 512,
@@ -305,19 +344,21 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
                         })
                         .toBuffer()
                         .then(rdata => {
-                            let buf = Buffer.from(rdata);
-                            let encodedData = buf.toString('base64');
+                            let encodedData = rdata.toString('base64');
                             s3.putObject({
                                 Bucket: 'servicemedia',
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
                                 Body: encodedData
-                              }).done(function (resp) {
-                                console.log('Successfully uploaded half pic for ' + image._id );
-                            });
-
-                        })
+                              }, function (error, resp) {
+                                if (error) {
+                                  console.log('error putting  pic' + error);
+                                } else {
+                                  console.log('Successfully uploaded  pic with response: ' + resp);
+                                }
+                            })
+                          })
                         .catch(err => {console.log(err); res.end(err);});
-                        await sharp(data)
+                        await sharp(data.Body)
                         .resize({
                           kernel: sharp.kernel.nearest,
                           width: 256,
@@ -326,21 +367,26 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
                         })
                         .toBuffer()
                         .then(rdata => {
-                            let buf = Buffer.from(rdata);
-                            let encodedData = buf.toString('base64');
+                            // let buf = Buffer.from(rdata);
+                            let encodedData = rdata.toString('base64');
                             s3.putObject({
                                 Bucket: 'servicemedia',
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
                                 Body: encodedData
-                              }).done(function (resp) {
-                                console.log('Successfully uploaded quarter pic for ' + image._id);
-                            });
-                        })
+                              }, function (error, resp) {
+                                if (error) {
+                                  console.log('error putting  pic' + error);
+                                } else {
+                                  console.log('Successfully uploaded  pic with response: ' + resp);
+                                }
+                            })
+                          })
                         .catch(err => {console.log(err); res.end(err);});
                         res.send("resize successful!");
                         })();//end async
-                    }
-                    });
+                        }
+                    // })();//end async
+                    // });
                 }
             });
             console.log("returning image item : " + JSON.stringify(image));

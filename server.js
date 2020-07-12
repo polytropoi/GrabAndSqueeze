@@ -149,6 +149,12 @@ function validURL(str) {
     }
   }
 
+function getExtension(filename) {
+    // console.log("tryna get extension of " + filename);
+    var i = filename.lastIndexOf('.');
+    return (i < 0) ? '' : filename.substr(i);
+}
+
 app.get("/", function (req, res) {
     //send "Hello World" to the client as html
         res.send("howdy!");
@@ -294,6 +300,13 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
             res.send("no image in db");
         } else {
             var params = {Bucket: 'servicemedia', Key: "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename};
+            let extension = getExtension(image.filename).toLowerCase();
+            let contentType = 'image/jpeg';
+            let format = 'jpg';
+            if (extension == ".PNG" || extension == ".png") {
+              contentType = 'image/png';
+              format = 'png';
+            }
             // var params = {Bucket: 'servicemedia', Key: "users/" + picture_item.userID + "/" + picture_item._id + "." + originalName};
             s3.headObject(params, function (err, url) {
                 if (err) {
@@ -315,17 +328,19 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
                           kernel: sharp.kernel.nearest,
                           width: 1024,
                           width: 1024,
-                          fit: 'cover'
+                          fit: 'contain'
                         })
+                        .toFormat(format)
                         .toBuffer()
                         .then(rdata => {
                             // let buf = Buffer.from(rdata);
-                            let encodedData = rdata.toString('base64');
-                            console.log(encodedData)
-s3.putObject({
+                            // let encodedData = rdata.toString('base64');
+                            // console.log(encodedData)
+                              s3.putObject({
                                 Bucket: 'servicemedia',
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
-                                Body: encodedData
+                                Body: rdata,
+                                ContentType: contentType
                               }, function (error, resp) {
                                   if (error) {
                                     console.log('error putting  pic' + error);
@@ -340,15 +355,17 @@ s3.putObject({
                           kernel: sharp.kernel.nearest,
                           width: 512,
                           width: 512,
-                          fit: 'cover'
+                          fit: 'contain'
                         })
+                        .toFormat(format)
                         .toBuffer()
                         .then(rdata => {
-                            let encodedData = rdata.toString('base64');
+                            // let encodedData = rdata.toString('base64');
                             s3.putObject({
                                 Bucket: 'servicemedia',
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
-                                Body: encodedData
+                                Body: rdata,
+                                ContentType: contentType
                               }, function (error, resp) {
                                 if (error) {
                                   console.log('error putting  pic' + error);
@@ -363,16 +380,18 @@ s3.putObject({
                           kernel: sharp.kernel.nearest,
                           width: 256,
                           width: 256,
-                          fit: 'cover'
+                          fit: 'contain'
                         })
+                        .toFormat(format)
                         .toBuffer()
                         .then(rdata => {
                             // let buf = Buffer.from(rdata);
-                            let encodedData = rdata.toString('base64');
+                            // let encodedData = rdata.toString('base64');
                             s3.putObject({
                                 Bucket: 'servicemedia',
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
-                                Body: encodedData
+                                Body: rdata,
+                                ContentType: contentType
                               }, function (error, resp) {
                                 if (error) {
                                   console.log('error putting  pic' + error);

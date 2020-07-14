@@ -1,8 +1,8 @@
 //copyright 2020 servicemedia.net
 var express = require("express")
-, https = require('https')
-, ffmpeg = require('fluent-ffmpeg')
-, ffmpeg_static = require('ffmpeg-static')
+    , https = require('https')
+    , ffmpeg = require('fluent-ffmpeg')
+    , ffmpeg_static = require('ffmpeg-static')
     , puppeteer = require('puppeteer')
     , sharp = require('sharp') 
     , http = require("http")
@@ -16,7 +16,7 @@ var express = require("express")
     , ObjectID = require("bson-objectid")
 
     app = express();
-    // app.use(helmet());
+    app.use(helmet()); //sets a bunch of security headers
     // app.use(helmet.frameguard());
     require('dotenv').config();
 
@@ -108,6 +108,75 @@ server.listen(process.env.PORT || 4000, function(){
     console.log("Express server listening on port 4000");
 });
 
+function requiredAuthentication(req, res, next) { //used as argument in routes below
+  console.log("headers: " + JSON.stringify(req.headers));
+    // if (requirePayment) { 
+    //     if (req.session.user.paymentStatus == "ok") {
+    //         next();
+    //     } else {
+    //         res.send('payment status not OK');       
+    //     }
+    // }
+    // if (req.session.user && req.session.user.status == "validated") { //check using session cookie
+    //     if (requirePayment) { 
+    //         if (req.session.user.paymentStatus == "ok") {
+    //             next();
+    //         } else {
+    //             req.session.error = 'Access denied! - payment status not ok';
+    //             res.send('payment status not OK');       
+    //         }
+    //     } else {
+    //         console.log("authenticated!");
+    //         next();
+    //     }
+    // } else {
+      if (req.headers['x-access-token'] != null) {  //check using json web token
+          var token = req.headers['x-access-token'];
+          console.log("req.headers.token: " + token);
+          jwt.verify(token, process.env.JWT_SECRET, function (err, payload) {
+                  console.log(JSON.stringify(payload));
+                  if (payload) {
+                      if (payload.userId != null){
+                          console.log("gotsa payload.userId : " + payload.userId);
+                          var oo_id = ObjectID(payload.userId);
+                          db.users.findOne({_id: oo_id}, function (err, user) {   //check user status
+                              if (err != null) {
+                                  req.session.error = 'Access denied!';
+                                  console.log("token authentication failed! User ID not found");
+                                  res.send('noauth');
+                              } else {
+                                  console.log("gotsa user " + user._id + " authLevel " + user.authLevel + " status " + user.status);
+                                  if (user.status == "validated") {
+                                    // userStatus = "subscriber";
+                                    // console.log("gotsa vaid user " + user._id);
+                                    next();
+                                  } else {
+                                      req.session.error = 'Access denied!';
+                                      console.log("token authentication failed! not a subscriber");
+                                      res.send('noauth');    
+                                  }
+                              }
+                          });
+                          // next();
+                      } else {
+                          req.session.error = 'Access denied!';
+                          console.log("token authentication failed! headers: " + JSON.stringify(req.headers));
+                          res.send('noauth');
+                      }
+                  } else {
+                      req.session.error = 'Access denied!';
+                      console.log("token authentication failed! headers: " + JSON.stringify(req.headers));
+                      res.send('noauth');
+                  }
+          });
+      } else {
+          req.session.error = 'Access denied!';
+          console.log("authentication failed! No cookie or token found");
+          res.send('noauth');
+      }
+  // }
+}
+
 function validURL(str) {
     var pattern = new RegExp('^(https?:\\/\\/)?'+ // protocol
       '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|'+ // domain name
@@ -154,6 +223,10 @@ function getExtension(filename) {
     var i = filename.lastIndexOf('.');
     return (i < 0) ? '' : filename.substr(i);
 }
+
+
+
+
 
 app.get("/", function (req, res) {
     //send "Hello World" to the client as html
@@ -290,7 +363,7 @@ app.post("/scrape_webpage/", function (req, res) {
     }
 });
 
-app.get('/resize_uploaded_picture/:_id', function (req, res) {
+app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, res) {
     console.log("tryna resize pic with key: " + req.params._id);
     var o_id = ObjectID(req.params._id);
     db.image_items.findOne({"_id": o_id}, function(err, image) {
@@ -307,35 +380,34 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
               contentType = 'image/png';
               format = 'png';
             }
-            // var params = {Bucket: 'servicemedia', Key: "users/" + picture_item.userID + "/" + picture_item._id + "." + originalName};
-            s3.headObject(params, function (err, url) {
+            s3.headObject(params, function (err, url) { //first check that the original file is in place
                 if (err) {
                     console.log(err);
                     res.send("no image in bucket");
                 } else {
-                    console.log("The URL is", url);
-                    // (async () => {
-                    // await s3.getObject(params, function (err, data) {
                     if (err) {
                         console.log(err);
                         res.end("couldn't get no image data");
                     } else {
                         (async () => { //do these jerbs one at a time..
-                        //  getObject 
                         let data = await s3.getObject(params).promise();
                         await sharp(data.Body)
                         .resize({
                           kernel: sharp.kernel.nearest,
-                          width: 1024,
+                          height: 1024,
                           width: 1024,
                           fit: 'contain'
+                        })
+                        .extend({
+                          top: 0,
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          background: { r: 0, g: 0, b: 0, alpha: 1 }
                         })
                         .toFormat(format)
                         .toBuffer()
                         .then(rdata => {
-                            // let buf = Buffer.from(rdata);
-                            // let encodedData = rdata.toString('base64');
-                            // console.log(encodedData)
                               s3.putObject({
                                 Bucket: 'servicemedia',
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
@@ -347,20 +419,26 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
                                   } else {
                                     console.log('Successfully uploaded  pic with response: ' + resp);
                                   }
-                              })//putObject returns request not promise, must add this to promisify
+                              })
                             })
                         .catch(err => {console.log(err); res.end(err);});
                         await sharp(data.Body)
                         .resize({
                           kernel: sharp.kernel.nearest,
-                          width: 512,
+                          height: 512,
                           width: 512,
                           fit: 'contain'
+                        })
+                        .extend({
+                          top: 0,
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          background: { r: 0, g: 0, b: 0, alpha: 1 }
                         })
                         .toFormat(format)
                         .toBuffer()
                         .then(rdata => {
-                            // let encodedData = rdata.toString('base64');
                             s3.putObject({
                                 Bucket: 'servicemedia',
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
@@ -378,9 +456,16 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
                         await sharp(data.Body)
                         .resize({
                           kernel: sharp.kernel.nearest,
-                          width: 256,
+                          height: 256,
                           width: 256,
                           fit: 'contain'
+                        })
+                        .extend({
+                          top: 0,
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          background: { r: 0, g: 0, b: 0, alpha: 1 }
                         })
                         .toFormat(format)
                         .toBuffer()
@@ -413,6 +498,98 @@ app.get('/resize_uploaded_picture/:_id', function (req, res) {
     });
 });
 
+async function allBucketKeys(s3, params) {
+  // const params = {
+  //   Bucket: bucket,
+  // };
+
+  var keys = [];
+  for (;;) {
+    var data = await s3.listObjects(params).promise();
+
+    data.Contents.forEach((elem) => {
+      keys = keys.concat(elem.Key);
+    });
+
+    if (!data.IsTruncated) {
+      break;
+    }
+    params.Marker = data.NextMarker;
+  }
+
+  return keys;
+}
+async function getFilesRecursivelySub(param) {
+
+  // Call the function to get list of items from S3.
+  let result = await s3.listObjectsV2(param).promise();
+
+  if(!result.IsTruncated) {
+      // Recursive terminating condition.
+      return result.Contents;
+  } else {
+      // Recurse it if results are truncated.
+      param.ContinuationToken = result.NextContinuationToken;
+      return result.Contents.concat(await getFilesRecursivelySub(param));
+  }
+}
+app.get("/copypics/:_id", function (req,res) {
+
+    var params = {
+      Bucket: 'servicemedia',
+      Prefix: 'users/' + req.params._id + '/'
+    }
+    (async () => { 
+    await getFilesRecursivelySub(params)
+    .then() {
+    res.send();
+    }
+    
+
+
+  })();
+ 
+    // var keys = await allBucketKeys(s3, params).promise();
+    // // console.log(keys);
+    // res.send(keys);
+    // var keys = [];
+    // const listAllKeys = (params, out = []) => new Promise((resolve, reject) => {
+    //   s3.listObjectsV2(params).promise()
+    //     .then(({Contents, IsTruncated, NextContinuationToken}) => {
+    //       out.push(...Contents);
+    //       !IsTruncated ? resolve(out) : resolve(listAllKeys(Object.assign(params, {ContinuationToken: NextContinuationToken}), out));
+    //     })
+    //     .catch(reject);
+    // });
+    
+    // listAllKeys(params)
+    //   .then(console.log)
+    //   .catch(console.log);
+    // s3.listObjects(params, function(err, data) {
+    //     if (err) {
+    //         console.log(err);
+    //         res.send("error " + err);
+    //     }
+    //     if (data.Contents.length == 0) {
+    //         console.log("no content found");
+    //         res.send("no content");
+    //     } else {
+    //         let response = "";
+    //         let content = data.Contents;
+    //         // console.log(content);
+    //         // for (let i = 0; i < content.length; i++) {
+    //         //   response = response +"<br> "+ content[i].name;
+    //         // }
+
+    //         data.Contents.forEach((elem) => {
+    //           if (elem.Key.includes(".original.")) {
+    //             keys = keys.concat(elem.Key);
+    //           }
+    //         });
+    //         res.send(keys);
+    //     }
+    // });
+});
 
 app.post("/convert_to_ogg/", function (req, res) {
     //send "Hello World" to the client as html

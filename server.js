@@ -486,6 +486,39 @@ app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, 
                             })
                           })
                         .catch(err => {console.log(err); res.end(err);});
+                        await sharp(data.Body)
+                        .resize({
+                          kernel: sharp.kernel.nearest,
+                          height: 128,
+                          width: 128,
+                          fit: 'contain'
+                        })
+                        .extend({
+                          top: 0,
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          background: { r: 0, g: 0, b: 0, alpha: 1 }
+                        })
+                        .toFormat(format)
+                        .toBuffer()
+                        .then(rdata => {
+                            // let buf = Buffer.from(rdata);
+                            // let encodedData = rdata.toString('base64');
+                            s3.putObject({
+                                Bucket: 'servicemedia',
+                                Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                                Body: rdata,
+                                ContentType: contentType
+                              }, function (error, resp) {
+                                if (error) {
+                                  console.log('error putting  pic' + error);
+                                } else {
+                                  console.log('Successfully uploaded  pic with response: ' + resp);
+                                }
+                            })
+                          })
+                        .catch(err => {console.log(err); res.end(err);});
                         res.send("resize successful!");
                         })();//end async
                         }
@@ -523,83 +556,120 @@ app.get("/update_s3_paths/:_id", function (req,res) {
       let oKeys = [];
       let nKeys = [];
         response.forEach((elem) => { //no need to async?
-              let keySplit = elem.Key.split("/");
-              let filename = keySplit[keySplit.length - 1];
-              if (((elem.Key.includes(".jpg") || elem.Key.includes(".png"))) && elem.Key.includes(".original.") && !elem.Key.includes("/pictures/originals/")) {
-                oKeys = oKeys.concat(elem.Key);
-                s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/pictures/originals/' + filename}, function(err, data) { //where it should be
-                  if (err) { //object isn't in proper folder, copy it over
-                  console.log("need to copy " + filename);  
-                  s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
-                      if (err) {
-                        console.log("ERROR copyObject");
-                        console.log(err);
-                      }
-                      else {
-                        console.log('SUCCESS copyObject');
-                      }
-                    });
-                  } else {
-                    console.log("found original, no need to copy" + filename);
-                  }
-                });
-              } else if (((elem.Key.includes(".jpg") || (elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.") && !elem.Key.includes(".standard.") && !elem.Key.includes(".quarter.") && !elem.Key.includes(".half.") && !elem.Key.includes(".thumb."))) {
-                s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function(err, data) { 
-                  if (err) { //object isn't in proper folder, copy it over
-                      console.log("need to copy " + filename);
-                      s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
-                        if (err) {
-                          console.log("ERROR copyObject");
-                          console.log(err);
-                        }
-                        else {
-                          console.log('SUCCESS copyObject');
-                        }
-                      });
-                    } else {
-                      console.log("found original, no need to copy" + filename);
+            let keySplit = elem.Key.split("/");
+            let filename = keySplit[keySplit.length - 1];
+            if (((elem.Key.includes(".aif") || elem.Key.includes(".aiff") ||  elem.Key.includes(".WAV") || elem.Key.includes(".AIF") || elem.Key.includes(".AIFF") ||
+              elem.Key.includes(".wav"))) && !elem.Key.includes("/audio/originals/")) {
+              s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/audio/originals/' + filename}, function(err, data) { //where it should be
+                if (err) { //object isn't in proper folder, copy it over
+                console.log("need to copy " + filename);  
+                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename }, function (err,data){
+                    if (err) {
+                      console.log("ERROR copyObject");
+                      console.log(err);
                     }
-                  // oKeys = oKeys.concat(elem.Key);
-                });
-              } else if (((elem.Key.includes(".jpg") || (elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.") && (elem.Key.includes(".standard.") || elem.Key.includes(".quarter.") || elem.Key.includes(".half.") || elem.Key.includes(".thumb.")))) {
-                s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function(err, data) { 
-                  if (err) { //object isn't in proper folder, copy it over
-                      console.log("need to copy " + filename);
-                      s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function (err,data){
-                        if (err) {
-                          console.log("ERROR copyObject");
-                          console.log(err);
-                        }
-                        else {
-                          console.log('SUCCESS copyObject');
-                        }
-                      });
-                    } else {
-                      console.log("found previous, no need to copy" + filename);
+                    else {
+                      console.log('SUCCESS copyObject');
                     }
-                  // oKeys = oKeys.concat(elem.Key);
-                });
-              }  else if (((elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.")) { //these are the old waveform pngs, din't have no other identifires
-                s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function(err, data) { 
-                  if (err) { //object isn't in proper folder, copy it over
-                      console.log("need to copy " + filename);
-                      s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function (err,data){
-                        if (err) {
-                          console.log("ERROR copyObject");
-                          console.log(err);
-                        }
-                        else {
-                          console.log('SUCCESS copyObject');
-                        }
-                      });
-                    } else {
-                      console.log("found previous, no need to copy" + filename);
+                  });
+                } else {
+                  console.log("found original, no need to copy" + filename);
+                }
+              });
+            } else if (((elem.Key.includes(".ogg") || elem.Key.includes(".MP3") || elem.Key.includes(".OGG") || elem.Key.includes(".mp3"))) && !elem.Key.includes("/audio/")) {
+              oKeys = oKeys.concat(filename);
+              s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/audio/originals/' + filename}, function(err, data) { //where it should be
+                if (err) { //object isn't in proper folder, copy it over
+                console.log("need to copy " + filename);  
+                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename }, function (err,data){
+                    if (err) {
+                      console.log("ERROR copyObject");
+                      console.log(err);
                     }
-                  // oKeys = oKeys.concat(elem.Key);
-                });
-              }
+                    else {
+                      console.log('SUCCESS copyObject');
+                    }
+                  });
+                } else {
+                  console.log("found original, no need to copy" + filename);
+                }
+              });
+            }
+              // if (((elem.Key.includes(".jpg") || elem.Key.includes(".png"))) && elem.Key.includes(".original.") && !elem.Key.includes("/pictures/originals/")) {
+              //   oKeys = oKeys.concat(elem.Key);
+              //   s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/pictures/originals/' + filename}, function(err, data) { //where it should be
+              //     if (err) { //object isn't in proper folder, copy it over
+              //     console.log("need to copy " + filename);  
+              //     s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
+              //         if (err) {
+              //           console.log("ERROR copyObject");
+              //           console.log(err);
+              //         }
+              //         else {
+              //           console.log('SUCCESS copyObject');
+              //         }
+              //       });
+              //     } else {
+              //       console.log("found original, no need to copy" + filename);
+              //     }
+              //   });
+              // } else if (((elem.Key.includes(".jpg") || (elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.") && !elem.Key.includes(".standard.") && !elem.Key.includes(".quarter.") && !elem.Key.includes(".half.") && !elem.Key.includes(".thumb."))) {
+              //   s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function(err, data) { 
+              //     if (err) { //object isn't in proper folder, copy it over
+              //         console.log("need to copy " + filename);
+              //         s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
+              //           if (err) {
+              //             console.log("ERROR copyObject");
+              //             console.log(err);
+              //           }
+              //           else {
+              //             console.log('SUCCESS copyObject');
+              //           }
+              //         });
+              //       } else {
+              //         console.log("found original, no need to copy" + filename);
+              //       }
+              //     // oKeys = oKeys.concat(elem.Key);
+              //   });
+              // } else if (((elem.Key.includes(".jpg") || (elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.") && (elem.Key.includes(".standard.") || elem.Key.includes(".quarter.") || elem.Key.includes(".half.") || elem.Key.includes(".thumb.")))) {
+              //   s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function(err, data) { 
+              //     if (err) { //object isn't in proper folder, copy it over
+              //         console.log("need to copy " + filename);
+              //         s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function (err,data){
+              //           if (err) {
+              //             console.log("ERROR copyObject");
+              //             console.log(err);
+              //           }
+              //           else {
+              //             console.log('SUCCESS copyObject');
+              //           }
+              //         });
+              //       } else {
+              //         console.log("found previous, no need to copy" + filename);
+              //       }
+              //     // oKeys = oKeys.concat(elem.Key);
+              //   });
+              // }  else if (((elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.")) { //these are the old waveform pngs, din't have no other identifires
+              //   s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function(err, data) { 
+              //     if (err) { //object isn't in proper folder, copy it over
+              //         console.log("need to copy " + filename);
+              //         s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function (err,data){
+              //           if (err) {
+              //             console.log("ERROR copyObject");
+              //             console.log(err);
+              //           }
+              //           else {
+              //             console.log('SUCCESS copyObject');
+              //           }
+              //         });
+              //       } else {
+              //         console.log("found previous, no need to copy" + filename);
+              //       }
+              //     // oKeys = oKeys.concat(elem.Key);
+              //   });
+              // }
             });
-      res.send("okmaybe");
+      res.send(oKeys);
     }
 
 
@@ -645,6 +715,20 @@ app.get("/update_s3_paths/:_id", function (req,res) {
     //         res.send(keys);
     //     }
     // });
+});
+
+app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
+  console.log("tryna resize pic with key: " + req.params._id);
+  var o_id = ObjectID(req.params._id);
+  db.audio_items.findOne({"_id": o_id}, function(err, image) {
+    if (err || !image) {
+        console.log("error getting image item: " + err);
+        callback("no image in db");
+        res.send("no image in db");
+    } else {
+    
+    }
+    });
 });
 
 app.post("/convert_to_ogg/", function (req, res) {

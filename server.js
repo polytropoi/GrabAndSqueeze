@@ -372,7 +372,7 @@ app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, 
             callback("no image in db");
             res.send("no image in db");
         } else {
-            var params = {Bucket: 'servicemedia', Key: "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename};
+            var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename};
             let extension = getExtension(image.filename).toLowerCase();
             let contentType = 'image/jpeg';
             let format = 'jpg';
@@ -409,7 +409,7 @@ app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, 
                         .toBuffer()
                         .then(rdata => {
                               s3.putObject({
-                                Bucket: 'servicemedia',
+                                Bucket: process.env.ROOT_BUCKET_NAME,
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
                                 Body: rdata,
                                 ContentType: contentType
@@ -440,7 +440,7 @@ app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, 
                         .toBuffer()
                         .then(rdata => {
                             s3.putObject({
-                                Bucket: 'servicemedia',
+                                Bucket: process.env.ROOT_BUCKET_NAME,
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
                                 Body: rdata,
                                 ContentType: contentType
@@ -473,7 +473,7 @@ app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, 
                             // let buf = Buffer.from(rdata);
                             // let encodedData = rdata.toString('base64');
                             s3.putObject({
-                                Bucket: 'servicemedia',
+                                Bucket: process.env.ROOT_BUCKET_NAME,
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
                                 Body: rdata,
                                 ContentType: contentType
@@ -506,7 +506,7 @@ app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, 
                             // let buf = Buffer.from(rdata);
                             // let encodedData = rdata.toString('base64');
                             s3.putObject({
-                                Bucket: 'servicemedia',
+                                Bucket: process.env.ROOT_BUCKET_NAME,
                                 Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
                                 Body: rdata,
                                 ContentType: contentType
@@ -545,9 +545,9 @@ async function getFilesRecursivelySub(param) { //function to get all keys from b
   }
 }
 
-app.get("/update_s3_paths/:_id", function (req,res) {
+app.get("/update_s3_audiopaths/:_id", function (req,res) {
     var params = {
-      Bucket: 'servicemedia',
+      Bucket: process.env.ROOT_BUCKET_NAME,
       Prefix: 'users/' + req.params._id + '/'
     }
     getFilesRecursively();
@@ -560,7 +560,7 @@ app.get("/update_s3_paths/:_id", function (req,res) {
             let filename = keySplit[keySplit.length - 1];
             if (((elem.Key.includes(".aif") || elem.Key.includes(".aiff") ||  elem.Key.includes(".WAV") || elem.Key.includes(".AIF") || elem.Key.includes(".AIFF") ||
               elem.Key.includes(".wav"))) && !elem.Key.includes("/audio/originals/")) {
-              s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/audio/originals/' + filename}, function(err, data) { //where it should be
+              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename}, function(err, data) { //where it should be
                 if (err) { //object isn't in proper folder, copy it over
                 console.log("need to copy " + filename);  
                 s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename }, function (err,data){
@@ -578,7 +578,7 @@ app.get("/update_s3_paths/:_id", function (req,res) {
               });
             } else if (((elem.Key.includes(".ogg") || elem.Key.includes(".MP3") || elem.Key.includes(".OGG") || elem.Key.includes(".mp3"))) && !elem.Key.includes("/audio/")) {
               oKeys = oKeys.concat(filename);
-              s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/audio/originals/' + filename}, function(err, data) { //where it should be
+              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename}, function(err, data) { //where it should be
                 if (err) { //object isn't in proper folder, copy it over
                 console.log("need to copy " + filename);  
                 s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename }, function (err,data){
@@ -597,7 +597,7 @@ app.get("/update_s3_paths/:_id", function (req,res) {
             }
               // if (((elem.Key.includes(".jpg") || elem.Key.includes(".png"))) && elem.Key.includes(".original.") && !elem.Key.includes("/pictures/originals/")) {
               //   oKeys = oKeys.concat(elem.Key);
-              //   s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/pictures/originals/' + filename}, function(err, data) { //where it should be
+              //   s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename}, function(err, data) { //where it should be
               //     if (err) { //object isn't in proper folder, copy it over
               //     console.log("need to copy " + filename);  
               //     s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
@@ -718,25 +718,65 @@ app.get("/update_s3_paths/:_id", function (req,res) {
 });
 
 app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
-  console.log("tryna resize pic with key: " + req.params._id);
+  console.log("tryna process audio : " + req.params._id);
   var o_id = ObjectID(req.params._id);
-  db.audio_items.findOne({"_id": o_id}, function(err, image) {
-    if (err || !image) {
+  db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
+    if (err || !audio_item) {
         console.log("error getting image item: " + err);
         callback("no image in db");
         res.send("no image in db");
     } else {
-    
+      console.log(JSON.stringify(audio_item));
+      s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename}, function(err, data) { //where it should be
+        if (err) { //object isn't in proper folder, copy it over
+          console.log("dint find no file at s3 like that...");
+        } else {
+          console.log("found original " + audio_item.filename);
+          let hasSentResponse = false;
+          (async () => {
+            var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
+            let data = await s3.getObject(params).createReadStream();
+            // await sharp(data.Body)
+            // ffmpeg({source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'})
+            ffmpeg(data)
+            .setFfmpegPath(ffmpeg_static)
+            .output('test.ogg')
+            .audioBitrate(256)
+            .audioCodec('vorbis')
+            .format('ogg')
+            .output('test.mp3')
+            .audioBitrate(256)
+            .audioCodec('libmp3lame')
+            .format('mp3')
+
+            .on('end', () => {
+                // ...
+                // res.send("finished")
+                console.log("done squoze them thangs");
+            })
+            .on('error', err => {
+
+                console.error(err);
+                res.send("error! " + err);
+            })
+            .on('progress', function(info) {
+                console.log('progress ' + info.percent + '%');
+                if (!hasSentResponse) {
+                  hasSentResponse = true;
+                  res.send("processing!");
+                }
+            })
+            .run();
+        })();
+        }
+      });
     }
     });
 });
 
-app.post("/convert_to_ogg/", function (req, res) {
-    //send "Hello World" to the client as html
-    // console.log("trina scrape...");
-    // let url = "/practikorkus_20191210.mp3";
+app.post("/process_audio/", function (req, res) {
 
-    console.log("tryna convert_to_ogg with audio id " + req.body._id);
+    console.log("tryna process audio with audio id " + req.body._id);
     // let stream = http.get('http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3');
     // let file = fs.createWriteStream("tmp.ogg");
     // http.get("http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3", res => {
@@ -767,7 +807,10 @@ app.post("/convert_to_ogg/", function (req, res) {
             .on('progress', function(info) {
                 console.log('progress ' + info.percent + '%');
             })
-            .save('test.ogg');
+            .save('temp.ogg');
+
+    })();
+
             // fmpeg({ timeout: 432000, source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'}).addOptions([
             //     '-profile:v baseline', // baseline profile (level 3.0) for H264 video codec
             //     '-level 3.0', 
@@ -778,7 +821,6 @@ app.post("/convert_to_ogg/", function (req, res) {
             //     '-f hls'               // HLS format
             //   ]).output('output.m3u8').on('end', callback).run()
 
-    })();
 });
 
 

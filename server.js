@@ -95,6 +95,7 @@ var maxItems = 1000;
 var aws = require('aws-sdk');
 const { lookupService } = require("dns");
 const { callbackify } = require("util");
+const { tmpdir } = require("os");
 aws.config.loadFromPath('conf.json');
 var ses = new aws.SES({apiVersion : '2010-12-01'});
 var s3 = new aws.S3();
@@ -170,7 +171,7 @@ function requiredAuthentication(req, res, next) { //used as argument in routes b
                   }
           });
       } else {
-          req.session.error = 'Access denied!';
+          // req.session.error = 'Access denied!';
           console.log("authentication failed! No cookie or token found");
           res.send('noauth');
       }
@@ -381,149 +382,147 @@ app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, 
               format = 'png';
             }
             s3.headObject(params, function (err, url) { //first check that the original file is in place
-                if (err) {
-                    console.log(err);
-                    res.send("no image in bucket");
-                } else {
-                    if (err) {
-                        console.log(err);
-                        res.end("couldn't get no image data");
-                    } else {
-                        (async () => { //do these jerbs one at a time..
-                        let data = await s3.getObject(params).promise();
-                        await sharp(data.Body)
-                        .resize({
-                          kernel: sharp.kernel.nearest,
-                          height: 1024,
-                          width: 1024,
-                          fit: 'contain'
+              if (err) {
+                  console.log(err);
+                  res.send("no image in bucket");
+              } else {
+              if (err) {
+                  console.log(err);
+                  res.end("couldn't get no image data");
+              } else {
+                  (async () => { //do these jerbs one at a time..
+                  let data = await s3.getObject(params).promise();
+                  await sharp(data.Body)
+                  .resize({
+                    kernel: sharp.kernel.nearest,
+                    height: 1024,
+                    width: 1024,
+                    fit: 'contain'
+                  })
+                  .extend({
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    background: { r: 0, g: 0, b: 0, alpha: 1 }
+                  })
+                  .toFormat(format)
+                  .toBuffer()
+                  .then(rdata => {
+                        s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
                         })
-                        .extend({
-                          top: 0,
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          background: { r: 0, g: 0, b: 0, alpha: 1 }
-                        })
-                        .toFormat(format)
-                        .toBuffer()
-                        .then(rdata => {
-                              s3.putObject({
-                                Bucket: process.env.ROOT_BUCKET_NAME,
-                                Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
-                                Body: rdata,
-                                ContentType: contentType
-                              }, function (error, resp) {
-                                  if (error) {
-                                    console.log('error putting  pic' + error);
-                                  } else {
-                                    console.log('Successfully uploaded  pic with response: ' + resp);
-                                  }
-                              })
-                            })
-                        .catch(err => {console.log(err); res.end(err);});
-                        await sharp(data.Body)
-                        .resize({
-                          kernel: sharp.kernel.nearest,
-                          height: 512,
-                          width: 512,
-                          fit: 'contain'
-                        })
-                        .extend({
-                          top: 0,
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          background: { r: 0, g: 0, b: 0, alpha: 1 }
-                        })
-                        .toFormat(format)
-                        .toBuffer()
-                        .then(rdata => {
-                            s3.putObject({
-                                Bucket: process.env.ROOT_BUCKET_NAME,
-                                Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
-                                Body: rdata,
-                                ContentType: contentType
-                              }, function (error, resp) {
-                                if (error) {
-                                  console.log('error putting  pic' + error);
-                                } else {
-                                  console.log('Successfully uploaded  pic with response: ' + resp);
-                                }
-                            })
-                          })
-                        .catch(err => {console.log(err); res.end(err);});
-                        await sharp(data.Body)
-                        .resize({
-                          kernel: sharp.kernel.nearest,
-                          height: 256,
-                          width: 256,
-                          fit: 'contain'
-                        })
-                        .extend({
-                          top: 0,
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          background: { r: 0, g: 0, b: 0, alpha: 1 }
-                        })
-                        .toFormat(format)
-                        .toBuffer()
-                        .then(rdata => {
-                            // let buf = Buffer.from(rdata);
-                            // let encodedData = rdata.toString('base64');
-                            s3.putObject({
-                                Bucket: process.env.ROOT_BUCKET_NAME,
-                                Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
-                                Body: rdata,
-                                ContentType: contentType
-                              }, function (error, resp) {
-                                if (error) {
-                                  console.log('error putting  pic' + error);
-                                } else {
-                                  console.log('Successfully uploaded  pic with response: ' + resp);
-                                }
-                            })
-                          })
-                        .catch(err => {console.log(err); res.end(err);});
-                        await sharp(data.Body)
-                        .resize({
-                          kernel: sharp.kernel.nearest,
-                          height: 128,
-                          width: 128,
-                          fit: 'contain'
-                        })
-                        .extend({
-                          top: 0,
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          background: { r: 0, g: 0, b: 0, alpha: 1 }
-                        })
-                        .toFormat(format)
-                        .toBuffer()
-                        .then(rdata => {
-                            // let buf = Buffer.from(rdata);
-                            // let encodedData = rdata.toString('base64');
-                            s3.putObject({
-                                Bucket: process.env.ROOT_BUCKET_NAME,
-                                Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
-                                Body: rdata,
-                                ContentType: contentType
-                              }, function (error, resp) {
-                                if (error) {
-                                  console.log('error putting  pic' + error);
-                                } else {
-                                  console.log('Successfully uploaded  pic with response: ' + resp);
-                                }
-                            })
-                          })
-                        .catch(err => {console.log(err); res.end(err);});
-                        res.send("resize successful!");
-                        })();//end async
-                        }
-                    // })();//end async
-                    // });
+                      })
+                  .catch(err => {console.log(err); res.end(err);});
+                  await sharp(data.Body)
+                  .resize({
+                    kernel: sharp.kernel.nearest,
+                    height: 512,
+                    width: 512,
+                    fit: 'contain'
+                  })
+                  .extend({
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    background: { r: 0, g: 0, b: 0, alpha: 1 }
+                  })
+                  .toFormat(format)
+                  .toBuffer()
+                  .then(rdata => {
+                      s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                          if (error) {
+                            console.log('error putting  pic' + error);
+                          } else {
+                            console.log('Successfully uploaded  pic with response: ' + resp);
+                          }
+                      })
+                    })
+                  .catch(err => {console.log(err); res.end(err);});
+                  await sharp(data.Body)
+                  .resize({
+                    kernel: sharp.kernel.nearest,
+                    height: 256,
+                    width: 256,
+                    fit: 'contain'
+                  })
+                  .extend({
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    background: { r: 0, g: 0, b: 0, alpha: 1 }
+                  })
+                  .toFormat(format)
+                  .toBuffer()
+                  .then(rdata => {
+                      // let buf = Buffer.from(rdata);
+                      // let encodedData = rdata.toString('base64');
+                      s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                          if (error) {
+                            console.log('error putting  pic' + error);
+                          } else {
+                            console.log('Successfully uploaded  pic with response: ' + resp);
+                          }
+                      })
+                    })
+                  .catch(err => {console.log(err); res.end(err);});
+                  await sharp(data.Body)
+                  .resize({
+                    kernel: sharp.kernel.nearest,
+                    height: 128,
+                    width: 128,
+                    fit: 'contain'
+                  })
+                  .extend({
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    background: { r: 0, g: 0, b: 0, alpha: 1 }
+                  })
+                  .toFormat(format)
+                  .toBuffer()
+                  .then(rdata => {
+                      // let buf = Buffer.from(rdata);
+                      // let encodedData = rdata.toString('base64');
+                      s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                          if (error) {
+                            console.log('error putting  pic' + error);
+                          } else {
+                            console.log('Successfully uploaded  pic with response: ' + resp);
+                          }
+                      })
+                    })
+                  .catch(err => {console.log(err); res.end(err);});
+                  res.send("resize successful!");
+                  })();//end async
+                  }
                 }
             });
             console.log("returning image item : " + JSON.stringify(image));
@@ -544,6 +543,96 @@ async function getFilesRecursivelySub(param) { //function to get all keys from b
       return result.Contents.concat(await getFilesRecursivelySub(param));
   }
 }
+app.get("/update_s3_picturepaths/:_id", function (req,res) {
+  var params = {
+    Bucket: process.env.ROOT_BUCKET_NAME,
+    Prefix: 'users/' + req.params._id + '/'
+  }
+  getFilesRecursively();
+  async function getFilesRecursively() {  
+    let response = await getFilesRecursivelySub(params); //gimme all the things, even > 1000!
+    let oKeys = [];
+    let nKeys = [];
+      response.forEach((elem) => { //no need to async?
+          let keySplit = elem.Key.split("/");
+          let filename = keySplit[keySplit.length - 1];
+            if (((elem.Key.includes(".jpg") || elem.Key.includes(".png"))) && elem.Key.includes(".original.") && !elem.Key.includes("/pictures/originals/")) {
+              oKeys = oKeys.concat(elem.Key);
+              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename}, function(err, data) { //where it should be
+                if (err) { //object isn't in proper folder, copy it over
+                console.log("need to copy " + filename);  
+                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
+                    if (err) {
+                      console.log("ERROR copyObject");
+                      console.log(err);
+                    }
+                    else {
+                      console.log('SUCCESS copyObject');
+                    }
+                  });
+                } else {
+                  console.log("found original, no need to copy" + filename);
+                }
+              });
+            } else if (((elem.Key.includes(".jpg") || (elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.") && !elem.Key.includes(".standard.") && !elem.Key.includes(".quarter.") && !elem.Key.includes(".half.") && !elem.Key.includes(".thumb."))) {
+              s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function(err, data) { 
+                if (err) { //object isn't in proper folder, copy it over
+                    console.log("need to copy " + filename);
+                    s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
+                      if (err) {
+                        console.log("ERROR copyObject");
+                        console.log(err);
+                      }
+                      else {
+                        console.log('SUCCESS copyObject');
+                      }
+                    });
+                  } else {
+                    console.log("found original, no need to copy" + filename);
+                  }
+                // oKeys = oKeys.concat(elem.Key);
+              });
+            } else if (((elem.Key.includes(".jpg") || (elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.") && (elem.Key.includes(".standard.") || elem.Key.includes(".quarter.") || elem.Key.includes(".half.") || elem.Key.includes(".thumb.")))) {
+              s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function(err, data) { 
+                if (err) { //object isn't in proper folder, copy it over
+                    console.log("need to copy " + filename);
+                    s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function (err,data){
+                      if (err) {
+                        console.log("ERROR copyObject");
+                        console.log(err);
+                      }
+                      else {
+                        console.log('SUCCESS copyObject');
+                      }
+                    });
+                  } else {
+                    console.log("found previous, no need to copy" + filename);
+                  }
+                // oKeys = oKeys.concat(elem.Key);
+              });
+            }  else if (((elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.")) { //these are the old waveform pngs, din't have no other identifires
+              s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function(err, data) { 
+                if (err) { //object isn't in proper folder, copy it over
+                    console.log("need to copy " + filename);
+                    s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function (err,data){
+                      if (err) {
+                        console.log("ERROR copyObject");
+                        console.log(err);
+                      }
+                      else {
+                        console.log('SUCCESS copyObject');
+                      }
+                    });
+                  } else {
+                    console.log("found previous, no need to copy" + filename);
+                  }
+                // oKeys = oKeys.concat(elem.Key);
+              });
+            }
+          });
+    res.send(oKeys);
+  }
+});
 
 app.get("/update_s3_audiopaths/:_id", function (req,res) {
     var params = {
@@ -595,126 +684,10 @@ app.get("/update_s3_audiopaths/:_id", function (req,res) {
                 }
               });
             }
-              // if (((elem.Key.includes(".jpg") || elem.Key.includes(".png"))) && elem.Key.includes(".original.") && !elem.Key.includes("/pictures/originals/")) {
-              //   oKeys = oKeys.concat(elem.Key);
-              //   s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename}, function(err, data) { //where it should be
-              //     if (err) { //object isn't in proper folder, copy it over
-              //     console.log("need to copy " + filename);  
-              //     s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
-              //         if (err) {
-              //           console.log("ERROR copyObject");
-              //           console.log(err);
-              //         }
-              //         else {
-              //           console.log('SUCCESS copyObject');
-              //         }
-              //       });
-              //     } else {
-              //       console.log("found original, no need to copy" + filename);
-              //     }
-              //   });
-              // } else if (((elem.Key.includes(".jpg") || (elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.") && !elem.Key.includes(".standard.") && !elem.Key.includes(".quarter.") && !elem.Key.includes(".half.") && !elem.Key.includes(".thumb."))) {
-              //   s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function(err, data) { 
-              //     if (err) { //object isn't in proper folder, copy it over
-              //         console.log("need to copy " + filename);
-              //         s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/originals/' + filename }, function (err,data){
-              //           if (err) {
-              //             console.log("ERROR copyObject");
-              //             console.log(err);
-              //           }
-              //           else {
-              //             console.log('SUCCESS copyObject');
-              //           }
-              //         });
-              //       } else {
-              //         console.log("found original, no need to copy" + filename);
-              //       }
-              //     // oKeys = oKeys.concat(elem.Key);
-              //   });
-              // } else if (((elem.Key.includes(".jpg") || (elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.") && (elem.Key.includes(".standard.") || elem.Key.includes(".quarter.") || elem.Key.includes(".half.") || elem.Key.includes(".thumb.")))) {
-              //   s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function(err, data) { 
-              //     if (err) { //object isn't in proper folder, copy it over
-              //         console.log("need to copy " + filename);
-              //         s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function (err,data){
-              //           if (err) {
-              //             console.log("ERROR copyObject");
-              //             console.log(err);
-              //           }
-              //           else {
-              //             console.log('SUCCESS copyObject');
-              //           }
-              //         });
-              //       } else {
-              //         console.log("found previous, no need to copy" + filename);
-              //       }
-              //     // oKeys = oKeys.concat(elem.Key);
-              //   });
-              // }  else if (((elem.Key.includes(".png"))) && !elem.Key.includes("/pictures/originals/") && !elem.Key.includes(".original.")) { //these are the old waveform pngs, din't have no other identifires
-              //   s3.headObject({ Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function(err, data) { 
-              //     if (err) { //object isn't in proper folder, copy it over
-              //         console.log("need to copy " + filename);
-              //         s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/pictures/' + filename }, function (err,data){
-              //           if (err) {
-              //             console.log("ERROR copyObject");
-              //             console.log(err);
-              //           }
-              //           else {
-              //             console.log('SUCCESS copyObject');
-              //           }
-              //         });
-              //       } else {
-              //         console.log("found previous, no need to copy" + filename);
-              //       }
-              //     // oKeys = oKeys.concat(elem.Key);
-              //   });
-              // }
+             
             });
       res.send(oKeys);
     }
-
-
-  // })();
- 
-    // var keys = await allBucketKeys(s3, params).promise();
-    // // console.log(keys);
-    // res.send(keys);
-    // var keys = [];
-    // const listAllKeys = (params, out = []) => new Promise((resolve, reject) => {
-    //   s3.listObjectsV2(params).promise()
-    //     .then(({Contents, IsTruncated, NextContinuationToken}) => {
-    //       out.push(...Contents);
-    //       !IsTruncated ? resolve(out) : resolve(listAllKeys(Object.assign(params, {ContinuationToken: NextContinuationToken}), out));
-    //     })
-    //     .catch(reject);
-    // });
-    
-    // listAllKeys(params)
-    //   .then(console.log)
-    //   .catch(console.log);
-    // s3.listObjects(params, function(err, data) {
-    //     if (err) {
-    //         console.log(err);
-    //         res.send("error " + err);
-    //     }
-    //     if (data.Contents.length == 0) {
-    //         console.log("no content found");
-    //         res.send("no content");
-    //     } else {
-    //         let response = "";
-    //         let content = data.Contents;
-    //         // console.log(content);
-    //         // for (let i = 0; i < content.length; i++) {
-    //         //   response = response +"<br> "+ content[i].name;
-    //         // }
-
-    //         data.Contents.forEach((elem) => {
-    //           if (elem.Key.includes(".original.")) {
-    //             keys = keys.concat(elem.Key);
-    //           }
-    //         });
-    //         res.send(keys);
-    //     }
-    // });
 });
 
 app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
@@ -736,26 +709,69 @@ app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
           (async () => {
             var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
             let data = await s3.getObject(params).createReadStream();
-            // await sharp(data.Body)
-            // ffmpeg({source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'})
+
             ffmpeg(data)
             .setFfmpegPath(ffmpeg_static)
-            .output('test.ogg')
+            
+            .output('tmp.png')            
+            .complexFilter(
+              [
+                  '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
+              ]
+            )
+            .outputOptions(['-vframes 1'])
+            // .format('png')
+
+            .output('tmp.ogg')
             .audioBitrate(256)
-            .audioCodec('vorbis')
+            .audioCodec('libvorbis')
             .format('ogg')
-            .output('test.mp3')
+
+            .output('tmp.mp3')
             .audioBitrate(256)
             .audioCodec('libmp3lame')
             .format('mp3')
 
             .on('end', () => {
-                // ...
-                // res.send("finished")
-                console.log("done squoze them thangs");
-            })
+                console.log("done squeezin audio");
+                s3.putObject({
+                  Bucket: process.env.ROOT_BUCKET_NAME,
+                  Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg",
+                  Body: fs.readFileSync('tmp.ogg'),
+                  ContentType: 'audio/ogg'
+                }, function (error, resp) {
+                  if (error) {
+                    console.log('error putting  pic' + error);
+                  } else {
+                    console.log('Successfully uploaded  ogg with response: ' + JSON.stringify(resp));
+                  }
+              });
+                s3.putObject({
+                  Bucket: process.env.ROOT_BUCKET_NAME,
+                  Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3",
+                  Body: fs.readFileSync('tmp.mp3'),
+                  ContentType: 'audio/mp3'
+                }, function (error, resp) {
+                  if (error) {
+                    console.log('error putting  pic' + error);
+                  } else {
+                    console.log('Successfully uploaded mp3 with response: ' + resp);
+                  }
+              });
+                s3.putObject({
+                  Bucket: process.env.ROOT_BUCKET_NAME,
+                  Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png",
+                  Body: fs.readFileSync('tmp.png'),
+                  ContentType: 'image/png'
+                }, function (error, resp) {
+                  if (error) {
+                    console.log('error putting  pic' + error);
+                  } else {
+                    console.log('Successfully uploaded png with response: ' + resp);
+                  }
+              });
+              })
             .on('error', err => {
-
                 console.error(err);
                 res.send("error! " + err);
             })
@@ -766,6 +782,37 @@ app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
                   res.send("processing!");
                 }
             })
+        //     .run();
+        // // })();
+
+        // // //for waveform          
+        // // (async () => {
+        // //   var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
+        // //   let data = await s3.getObject(params).createReadStream();
+        //     ffmpeg(data)
+        //     .setFfmpegPath(ffmpeg_static)
+            // .output('test.png')            
+            // .complexFilter(
+            //   [
+            //       '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
+            //   ]
+            // )
+            // .outputOptions(['-vframes 1'])
+            // .format('png')
+            // .on('end', () => {
+            //     console.log("done squeezin audio");
+            // })
+            // .on('error', err => {
+            //     console.error(err);
+            //     // res.send("error! " + err);
+            // })
+            // .on('progress', function(info) {
+            //     console.log('progress ' + info.percent + '%');
+            //     if (!hasSentResponse) {
+            //       hasSentResponse = true;
+            //       // res.send("processing!");
+            //     }
+            // })
             .run();
         })();
         }
@@ -773,6 +820,7 @@ app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
     }
     });
 });
+
 
 app.post("/process_audio/", function (req, res) {
 

@@ -1,6 +1,7 @@
 //copyright 2020 servicemedia.net
 var express = require("express")
-    , https = require('https')
+    // , https = require('https')
+    , cors = require('cors')
     , ffmpeg = require('fluent-ffmpeg')
     , ffmpeg_static = require('ffmpeg-static')
     , puppeteer = require('puppeteer')
@@ -16,9 +17,11 @@ var express = require("express")
     , ObjectID = require("bson-objectid")
 
     app = express();
+    app.use(cors());
     app.use(helmet()); //sets a bunch of security headers
     // app.use(helmet.frameguard());
     require('dotenv').config();
+
 
 var rootHost = process.env.ROOT_HOST
 var appName = "ServiceMedia";
@@ -34,6 +37,16 @@ var whitelist = ['https://servicemedia.net', 'http://localhost:4000'];
 
 var oneDay = 86400000;
 
+var whitelist = ['https://servicemedia.net', 'http://localhost:3000']
+var corsOptions = {
+  origin: function (origin, callback) {
+    if (whitelist.indexOf(origin) !== -1 || !origin) {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  }
+}
     // app.use (function (req, res, next) {
     //     var schema = (req.headers['x-forwarded-proto'] || '').toLowerCase();
     //     if (schema === 'https') {
@@ -234,7 +247,7 @@ app.get("/", function (req, res) {
         res.send("howdy!");
 });
 
-app.get("/scrape_webpage/:pageurl", function (req, res) {
+app.get("/scrape_webpage/:pageurl", cors(corsOptions), requiredAuthentication, function (req, res) {
     let url = "https://" + req.params.pageurl;
     (async () => {
         console.log("tryna scrape " + url);
@@ -364,7 +377,7 @@ app.post("/scrape_webpage/", function (req, res) {
     }
 });
 
-app.get('/resize_uploaded_picture/:_id', requiredAuthentication, function (req, res) {
+app.get('/resize_uploaded_picture/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //presumes pic has already been uploaded to production folder and db entry made
     console.log("tryna resize pic with key: " + req.params._id);
     var o_id = ObjectID(req.params._id);
     db.image_items.findOne({"_id": o_id}, function(err, image) {
@@ -690,7 +703,7 @@ app.get("/update_s3_audiopaths/:_id", function (req,res) {
     }
 });
 
-app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
+app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
   console.log("tryna process audio : " + req.params._id);
   var o_id = ObjectID(req.params._id);
   db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
@@ -709,7 +722,6 @@ app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
           (async () => {
             var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
             let data = await s3.getObject(params).createReadStream();
-
             ffmpeg(data)
             .setFfmpegPath(ffmpeg_static)
             
@@ -755,7 +767,7 @@ app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
                   if (error) {
                     console.log('error putting  pic' + error);
                   } else {
-                    console.log('Successfully uploaded mp3 with response: ' + resp);
+                    console.log('Successfully uploaded mp3 with response: ' + JSON.stringify(resp));
                   }
               });
                 s3.putObject({
@@ -767,7 +779,7 @@ app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
                   if (error) {
                     console.log('error putting  pic' + error);
                   } else {
-                    console.log('Successfully uploaded png with response: ' + resp);
+                    console.log('Successfully uploaded png with response: ' + JSON.stringify(resp));
                   }
               });
               })
@@ -782,37 +794,6 @@ app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
                   res.send("processing!");
                 }
             })
-        //     .run();
-        // // })();
-
-        // // //for waveform          
-        // // (async () => {
-        // //   var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
-        // //   let data = await s3.getObject(params).createReadStream();
-        //     ffmpeg(data)
-        //     .setFfmpegPath(ffmpeg_static)
-            // .output('test.png')            
-            // .complexFilter(
-            //   [
-            //       '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
-            //   ]
-            // )
-            // .outputOptions(['-vframes 1'])
-            // .format('png')
-            // .on('end', () => {
-            //     console.log("done squeezin audio");
-            // })
-            // .on('error', err => {
-            //     console.error(err);
-            //     // res.send("error! " + err);
-            // })
-            // .on('progress', function(info) {
-            //     console.log('progress ' + info.percent + '%');
-            //     if (!hasSentResponse) {
-            //       hasSentResponse = true;
-            //       // res.send("processing!");
-            //     }
-            // })
             .run();
         })();
         }
@@ -821,58 +802,7 @@ app.get('/process_audio/:_id', requiredAuthentication, function (req, res) {
     });
 });
 
-
-app.post("/process_audio/", function (req, res) {
-
-    console.log("tryna process audio with audio id " + req.body._id);
-    // let stream = http.get('http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3');
-    // let file = fs.createWriteStream("tmp.ogg");
-    // http.get("http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3", res => {
-    //     res.pipe(file);
-    //     let data = "";
-
-    //     res.on("data", d => {
-    //         data += d;
-    //     });
-    //     res.on("end", () => {
-    //         console.log("done");
-    //     });
-    // });
-    (async () => {
-            ffmpeg({source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'})
-            .setFfmpegPath(ffmpeg_static)
-            .audioBitrate(256)
-            .audioCodec('vorbis')
-            .format('ogg')
-
-            .on('end', () => {
-                // ...
-                console.log("done squoze an ogg");
-            })
-            .on('error', err => {
-                console.error(err);
-            })
-            .on('progress', function(info) {
-                console.log('progress ' + info.percent + '%');
-            })
-            .save('temp.ogg');
-
-    })();
-
-            // fmpeg({ timeout: 432000, source: 'http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3'}).addOptions([
-            //     '-profile:v baseline', // baseline profile (level 3.0) for H264 video codec
-            //     '-level 3.0', 
-            //     '-s 640x360',          // 640px width, 360px height output video dimensions
-            //     '-start_number 0',     // start the first .ts segment at index 0
-            //     '-hls_time 10',        // 10 second segment duration
-            //     '-hls_list_size 0',    // Maxmimum number of playlist entries (0 means all entries/infinite)
-            //     '-f hls'               // HLS format
-            //   ]).output('output.m3u8').on('end', callback).run()
-
-});
-
-
-app.get("/stream_vid/", function (req, res) {
+app.get("/stream_vid/", cors(corsOptions), requiredAuthentication, function (req, res) {
     //send "Hello World" to the client as html
     // console.log("trina scrape...");
     // let url = "/practikorkus_20191210.mp3";
@@ -957,41 +887,3 @@ app.get("/stream_vid/", function (req, res) {
 
 
 
-// // host, port and path to the RTMP stream
-// var host = '127.0.0.1';
-// var port = '1935';
-// var path = '/live/test';
-
-// function callback() { console.log("done streaming")}// do something when stream ends and encoding finshes }
-
-// (async () => {
-//     var host = '127.0.0.1'
-//     var port = '1935'
-//     var path = '/live/test'
-    
-//     ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
-//         '-c:v libx264',
-//         '-c:a aac',
-//         '-ac 1',
-//         '-strict -2',
-//         '-crf 18',
-//         '-profile:v baseline',
-//         '-maxrate 400k',
-//         '-bufsize 1835k',
-//         '-pix_fmt yuv420p',
-//         '-hls_time 10',
-//         '-hls_list_size 6',
-//         '-hls_wrap 10',
-//         '-start_number 1'
-//       ]).output('public/videos/output.m3u8')
-//         .on('progress', (info) => {
-//             console.log("squeezing to hls " + info);
-//         })
-//         .on('err', (err) => {
-//             console.log("error squeezin vidz" + err);
-//         })
-//         .on('end', () => {
-//             console.log("done squeezin vidz");
-//         })
-//         res.send("maybe streaming now at /public/videos/")
-// })();

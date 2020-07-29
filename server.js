@@ -313,11 +313,11 @@ app.get("/scrape_webpage/:pageurl", cors(corsOptions), requiredAuthentication, f
 app.post("/scrapeweb/", cors(corsOptions), requiredAuthentication, function (req, res) {
   // let url = req.body.pageurl;
   // let title = req.body.title;
-  console.log(req.body);
+  console.log("scrapeweb req with body "+ JSON.stringify(req.body));
   db.weblinks.findOne({ "_id" : ObjectID(req.body._id)}, function(err, link) {
 
     if (err || ! link) {
-
+      console.log("no link found or error for " + req.body._id);
     } else {
       console.log("link: " + JSON.stringify(link));
     let url = link.link_url;

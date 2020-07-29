@@ -506,6 +506,7 @@ app.get('/resize_uploaded_picture/:_id', cors(corsOptions), requiredAuthenticati
               } else {
                   (async () => { //do these jerbs one at a time..
                   let data = await s3.getObject(params).promise();
+                  if (format == 'jpg') {
                   await sharp(data.Body)
                   .resize({
                     kernel: sharp.kernel.nearest,
@@ -635,7 +636,119 @@ app.get('/resize_uploaded_picture/:_id', cors(corsOptions), requiredAuthenticati
                     })
                   .catch(err => {console.log(err); res.end(err);});
                   res.send("resize successful!");
-                  })();//end async
+                
+                } else { //if png, keep bg transparent
+                  console.log("format != jpg");
+                  await sharp(data.Body)
+                  .resize({
+                    kernel: sharp.kernel.nearest,
+                    height: 1024,
+                    width: 1024,
+                    fit: 'contain',
+                    background: { r: 0, g: 0, b: 0, alpha: 0 }
+                  })
+                  .toFormat(format)
+                  .toBuffer()
+                  .then(rdata => {
+                        s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
+                        })
+                      })
+                  .catch(err => {console.log(err); res.end(err);});
+                  await sharp(data.Body)
+                  .resize({
+                    kernel: sharp.kernel.nearest,
+                    height: 512,
+                    width: 512,
+                    fit: 'contain',
+                    ackground: { r: 0, g: 0, b: 0, alpha: 0 }
+                  })
+                  .toFormat(format)
+                  .toBuffer()
+                  .then(rdata => {
+                      s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                          if (error) {
+                            console.log('error putting  pic' + error);
+                          } else {
+                            console.log('Successfully uploaded  pic with response: ' + resp);
+                          }
+                      })
+                    })
+                  .catch(err => {console.log(err); res.end(err);});
+                  await sharp(data.Body)
+                  .resize({
+                    kernel: sharp.kernel.nearest,
+                    height: 256,
+                    width: 256,
+                    fit: 'contain',
+                    background: { r: 0, g: 0, b: 0, alpha: 0 }
+                  })
+                  .toFormat(format)
+                  .toBuffer()
+                  .then(rdata => {
+                      // let buf = Buffer.from(rdata);
+                      // let encodedData = rdata.toString('base64');
+                      s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                          if (error) {
+                            console.log('error putting  pic' + error);
+                          } else {
+                            console.log('Successfully uploaded  pic with response: ' + resp);
+                          }
+                      })
+                    })
+                  .catch(err => {console.log(err); res.end(err);});
+                  await sharp(data.Body)
+                  .resize({
+                    kernel: sharp.kernel.nearest,
+                    height: 128,
+                    width: 128,
+                    fit: 'contain',
+                    background: { r: 0, g: 0, b: 0, alpha: 0 }
+                  })
+                  .toFormat(format)
+                  .toBuffer()
+                  .then(rdata => {
+                      // let buf = Buffer.from(rdata);
+                      // let encodedData = rdata.toString('base64');
+                      s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                          if (error) {
+                            console.log('error putting  pic' + error);
+                          } else {
+                            console.log('Successfully uploaded  pic with response: ' + resp);
+                          }
+                      })
+                    })
+                  .catch(err => {console.log(err); res.end(err);});
+                  res.send("resize successful!");
+                
+                }
+
+                })();//end async
+                
                   }
                 }
             });

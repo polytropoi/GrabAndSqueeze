@@ -310,18 +310,26 @@ app.get("/scrape_webpage/:pageurl", cors(corsOptions), requiredAuthentication, f
     })();
 });
 
-app.post("/scrape_webpage/", function (req, res) {
-    if (validURL(req.body.pageurl)) {
-    let url = req.body.pageurl;
+app.post("/scrapeweb/", cors(corsOptions), requiredAuthentication, function (req, res) {
+  // let url = req.body.pageurl;
+  // let title = req.body.title;
+  console.log(req.body);
+  db.weblinks.findOne({ "_id" : ObjectID(req.body._id)}, function(err, link) {
+
+    if (err || ! link) {
+
+    } else {
+      console.log("link: " + JSON.stringify(link));
+    let url = link.link_url;
     (async () => {
-        console.log("trina scrape...");
+        console.log("tryna scrape " + url);
         let response = "";
         const browser = await puppeteer.launch();
         const page = await browser.newPage();
         const override = Object.assign(page.viewport(), {width: 1024, height: 1024});
         await page.setViewport(override);
         await page.goto(url);
-        const pagepic = await page.screenshot({fullPage: true});
+        const pagepic = await page.screenshot({fullPage: false});
         await sharp(pagepic)
         .resize({
           kernel: sharp.kernel.nearest,
@@ -330,12 +338,21 @@ app.post("/scrape_webpage/", function (req, res) {
           fit: 'fill'
         })
         .toBuffer()
-        .then(data => {
-            let buf = Buffer.from(data);
-            let encodedData = buf.toString('base64');
-            response = "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
-            // console.log("response: " + response);
-            res.send(response);
+        .then(rdata => {
+          s3.putObject({
+            Bucket: process.env.WEBSCRAPE_BUCKET_NAME,
+            Key: link._id + "/" + link._id + ".standard.jpg",
+            Body: rdata,
+            ContentType: 'image/jpg'
+          }, function (error, resp) {
+              if (error) {
+                console.log('error putting  pic' + error);
+                res.send(error);
+              } else {
+                // console.log("key : " +process.env.WEBSCRAPE_BUCKET_NAME + "/" + link._id + "/" + link._id + ".standard.jpg",)
+                console.log('Successfully uploaded  pic with with response: ' + JSON.stringify(resp));
+              }
+          })
         })
         .catch(err => {console.log(err); res.send(err);});
         await sharp(pagepic)
@@ -346,36 +363,120 @@ app.post("/scrape_webpage/", function (req, res) {
           fit: 'cover'
         })
         .toBuffer()
-        .then(data => {
-            let buf = Buffer.from(data);
-            let encodedData = buf.toString('base64');
-            response = response + "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
-            // console.log("response: " + response);
-            res.send(response);
+        .then(rdata => {
+          s3.putObject({
+            Bucket: process.env.WEBSCRAPE_BUCKET_NAME,
+            Key: link._id + "/" + link._id + ".half.jpg",
+            Body: rdata,
+            ContentType: 'image/jpg'
+          }, function (error, resp) {
+              if (error) {
+                console.log('error putting  pic' + error);
+              } else {
+                console.log('Successfully uploaded  pic with response: ' + JSON.stringify(resp));
+              }
+          })
         })
         .catch(err => {console.log(err); res.send(err);});
         await sharp(pagepic)
         .resize({
           kernel: sharp.kernel.nearest,
-          width: 256,
-          width: 256,
+          width: 128,
+          width: 128,
           fit: 'cover'
         })
         .toBuffer()
-        .then(data => {
-            let buf = Buffer.from(data);
-            let encodedData = buf.toString('base64');
-            response = response + "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
-            // console.log("response: " + response);
-            res.send(response);
+        .then(rdata => {
+          s3.putObject({
+            Bucket: process.env.WEBSCRAPE_BUCKET_NAME,
+            Key: link._id + "/" + link._id + ".thumb.jpg",
+            Body: rdata,
+            ContentType: 'image/jpg'
+          }, function (error, resp) {
+              if (error) {
+                console.log('error putting  pic' + error);
+              } else {
+                console.log('Successfully uploaded  pic with response: ' + resp);
+                
+              }
+          })
+        
         })
         .catch(err => {console.log(err); res.send(err);});
         await browser.close();
-        })();
-    } else {
-        res.send("invalid url");
+
+      })();
+      res.send("web scrape successful!");
     }
+  });
 });
+
+// app.post("/scrape_webpage/", function (req, res) {
+//     if (validURL(req.body.pageurl)) {
+//     let url = req.body.pageurl;
+//     (async () => {
+//         console.log("trina scrape...");
+//         let response = "";
+//         const browser = await puppeteer.launch();
+//         const page = await browser.newPage();
+//         const override = Object.assign(page.viewport(), {width: 1024, height: 1024});
+//         await page.setViewport(override);
+//         await page.goto(url);
+//         const pagepic = await page.screenshot({fullPage: true});
+//         await sharp(pagepic)
+//         .resize({
+//           kernel: sharp.kernel.nearest,
+//           width: 1024,
+//           width: 1024,
+//           fit: 'fill'
+//         })
+//         .toBuffer()
+//         .then(data => {
+//             let buf = Buffer.from(data);
+//             let encodedData = buf.toString('base64');
+//             response = "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
+//             // console.log("response: " + response);
+//             res.send(response);
+//         })
+//         .catch(err => {console.log(err); res.send(err);});
+//         await sharp(pagepic)
+//         .resize({
+//           kernel: sharp.kernel.nearest,
+//           width: 512,
+//           width: 512,
+//           fit: 'cover'
+//         })
+//         .toBuffer()
+//         .then(data => {
+//             let buf = Buffer.from(data);
+//             let encodedData = buf.toString('base64');
+//             response = response + "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
+//             // console.log("response: " + response);
+//             res.send(response);
+//         })
+//         .catch(err => {console.log(err); res.send(err);});
+//         await sharp(pagepic)
+//         .resize({
+//           kernel: sharp.kernel.nearest,
+//           width: 256,
+//           width: 256,
+//           fit: 'cover'
+//         })
+//         .toBuffer()
+//         .then(data => {
+//             let buf = Buffer.from(data);
+//             let encodedData = buf.toString('base64');
+//             response = response + "<img src=\x22data:image/jpeg;base64," + encodedData +"\x22>";
+//             // console.log("response: " + response);
+//             res.send(response);
+//         })
+//         .catch(err => {console.log(err); res.send(err);});
+//         await browser.close();
+//         })();
+//     } else {
+//         res.send("invalid url");
+//     }
+// });
 
 app.get('/resize_uploaded_picture/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //presumes pic has already been uploaded to production folder and db entry made
     console.log("tryna resize pic with key: " + req.params._id);
@@ -675,7 +776,7 @@ app.get("/update_s3_audiopaths/:_id", function (req,res) {
                     }
                   });
                 } else {
-                  console.log("found original, no need to copy" + filename);
+                  // console.log("found original, no need to copy" + filename);
                 }
               });
             } else if (((elem.Key.includes(".ogg") || elem.Key.includes(".MP3") || elem.Key.includes(".OGG") || elem.Key.includes(".mp3"))) && !elem.Key.includes("/audio/")) {
@@ -693,11 +794,46 @@ app.get("/update_s3_audiopaths/:_id", function (req,res) {
                     }
                   });
                 } else {
+                  // console.log("found original, no need to copy" + filename);
+                }
+              });
+            } else if ((elem.Key.includes(".png")) && !elem.Key.includes("/audio/") && !elem.Key.includes(".original.") && !elem.Key.includes(".standard.") && !elem.Key.includes(".quarter.") && !elem.Key.includes(".half.") && !elem.Key.includes(".thumb.")) {
+              oKeys = oKeys.concat(filename);
+              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/' + filename}, function(err, data) { //where it should be
+                if (err) { //object isn't in proper folder, copy it over
+                console.log("need to copy " + filename);  
+                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/' + filename }, function (err,data){
+                    if (err) {
+                      console.log("ERROR copyObject");
+                      console.log(err);
+                    }
+                    else {
+                      console.log('SUCCESS copyObject');
+                    }
+                  });
+                } else {
+                  // console.log("found original, no need to copy" + filename);
+                }
+              });
+            } else if (((elem.Key.includes(".ogg") || elem.Key.includes(".MP3") || elem.Key.includes(".OGG") || elem.Key.includes(".mp3"))) && !elem.Key.includes(".original.")) {
+              oKeys = oKeys.concat(filename);
+              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/' + filename}, function(err, data) { //where it should be
+                if (err) { //object isn't in proper folder, copy it over
+                console.log("need to copy " + filename);  
+                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/' + filename }, function (err,data){
+                    if (err) {
+                      console.log("ERROR copyObject");
+                      console.log(err);
+                    }
+                    else {
+                      console.log('SUCCESS copyObject');
+                    }
+                  });
+                } else {
                   console.log("found original, no need to copy" + filename);
                 }
               });
-            }
-             
+            } 
             });
       res.send(oKeys);
     }
@@ -802,88 +938,84 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
     });
 });
 
-app.get("/stream_vid/", cors(corsOptions), requiredAuthentication, function (req, res) {
-    //send "Hello World" to the client as html
-    // console.log("trina scrape...");
-    // let url = "/practikorkus_20191210.mp3";
-    console.log(ffmpeg_static);
-    // let stream = http.get('http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3');
-    // let file = fs.createWriteStream("tmp.ogg");
-    // http.get("http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3", res => {
-    //     res.pipe(file);
-    //     let data = "";
+// app.get("/stream_vid/", cors(corsOptions), requiredAuthentication, function (req, res) {
+//     //send "Hello World" to the client as html
+//     // console.log("trina scrape...");
+//     // let url = "/practikorkus_20191210.mp3";
+//     console.log(ffmpeg_static);
+//     // let stream = http.get('http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3');
+//     // let file = fs.createWriteStream("tmp.ogg");
+//     // http.get("http://kork.us.s3.amazonaws.com/audio/practikorkus_20191210.mp3", res => {
+//     //     res.pipe(file);
+//     //     let data = "";
 
-    //     res.on("data", d => {
-    //         data += d;
-    //     });
-    //     res.on("end", () => {
-    //         console.log("done");
-    //     });
-    // });
-    (async () => {
-        // var host = '192.168.1.160';
-        // var port = '1935';
-        // var path = '/live/test';
+//     //     res.on("data", d => {
+//     //         data += d;
+//     //     });
+//     //     res.on("end", () => {
+//     //         console.log("done");
+//     //     });
+//     // });
+//     (async () => {
+//         // var host = '192.168.1.160';
+//         // var port = '1935';
+//         // var path = '/live/test';
         
-    //     ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
-    //         '-c:v libx264',
-    //         '-c:a aac',
-    //         '-ac 1',
-    //         '-strict -2',
-    //         '-crf 18',
-    //         '-profile:v baseline',
-    //         '-maxrate 400k',
-    //         '-bufsize 1835k',
-    //         '-pix_fmt yuv420p',
-    //         '-hls_time 10',
-    //         '-hls_list_size 6',
-    //         '-hls_wrap 10',
-    //         '-start_number 1'
-    //       ]).output('public/videos/output.m3u8').on('end', () => {
-    //         // ...
-    //         console.log("done squeezin vidz");
-    //     //   })
-    //     })
-    //     
-        let path = ffmpeg_static;
-        var proc = ffmpeg('rtmp://192.168.1.160:1935/live/test', { timeout: 432000 })
-        .setFfmpegPath(path)
-        // set video bitrate
-        .videoBitrate(1024)
-        // set h264 preset
-        // .addOption('preset','superfast')
-        // set target codec
-        .videoCodec('libx264')
-        // set audio bitrate
-        .audioBitrate('128k')
-        // set audio codec
-        .withAudioCodec('aac')
+//     //     ffmpeg('rtmp://'+host+':'+port+path, { timeout: 432000 }).addOptions([
+//     //         '-c:v libx264',
+//     //         '-c:a aac',
+//     //         '-ac 1',
+//     //         '-strict -2',
+//     //         '-crf 18',
+//     //         '-profile:v baseline',
+//     //         '-maxrate 400k',
+//     //         '-bufsize 1835k',
+//     //         '-pix_fmt yuv420p',
+//     //         '-hls_time 10',
+//     //         '-hls_list_size 6',
+//     //         '-hls_wrap 10',
+//     //         '-start_number 1'
+//     //       ]).output('public/videos/output.m3u8').on('end', () => {
+//     //         // ...
+//     //         console.log("done squeezin vidz");
+//     //     //   })
+//     //     })
+//     //     
+//         let path = ffmpeg_static;
+//         var proc = ffmpeg('rtmp://192.168.1.160:1935/live/test', { timeout: 432000 })
+//         .setFfmpegPath(path)
+//         // set video bitrate
+//         .videoBitrate(1024)
+//         // set h264 preset
+//         // .addOption('preset','superfast')
+//         // set target codec
+//         .videoCodec('libx264')
+//         // set audio bitrate
+//         .audioBitrate('128k')
+//         // set audio codec
+//         .withAudioCodec('aac')
 
-        .format('mp4')
-        // set number of audio channels
-        .audioChannels(2)
-        // set hls segments time
-        .addOption('-hls_time', 10)
-        // include all the segments in the list
-        .addOption('-hls_list_size',0)
-        // .on('progress', function(prog) {
-        //     console.log(prog);
-        // })
-        // setup event handlers
-        .on('end', function() {
-            console.log('file has been converted succesfully');
-        })
-        .on('error', function(err) {
-            console.log('an error happened: ' + err.message);
-        })
-        // save to file
-        .save('public/videos/output.m3u8');
+//         .format('mp4')
+//         // set number of audio channels
+//         .audioChannels(2)
+//         // set hls segments time
+//         .addOption('-hls_time', 10)
+//         // include all the segments in the list
+//         .addOption('-hls_list_size',0)
+//         // .on('progress', function(prog) {
+//         //     console.log(prog);
+//         // })
+//         // setup event handlers
+//         .on('end', function() {
+//             console.log('file has been converted succesfully');
+//         })
+//         .on('error', function(err) {
+//             console.log('an error happened: ' + err.message);
+//         })
+//         // save to file
+//         .save('public/videos/output.m3u8');
 
-        // proc = proc
-        // proc.setFfmpegPath(ffmpeg_static);
-        })();
-
-});
-
-
-
+//         // proc = proc
+//         // proc.setFfmpegPath(ffmpeg_static);
+//         })();
+// });

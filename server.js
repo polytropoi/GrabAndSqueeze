@@ -1,6 +1,10 @@
 //copyright 2020 servicemedia.net
 var express = require("express")
+    , IPFS = require('ipfs-core')
+    // , { create, urlSource } = require('ipfs-http-client')
     // , https = require('https')
+    , { create, urlSource } = require('ipfs-http-client')
+    , ipfsHttpClient = create()
     , cors = require('cors')
     , ffmpeg = require('fluent-ffmpeg')
     , ffmpeg_static = require('ffmpeg-static')
@@ -15,7 +19,7 @@ var express = require("express")
     , mongojs = require("mongojs")
     , helmet = require('helmet')
     , ObjectID = require("bson-objectid")
-
+    , nodeCron = require("node-cron")
     app = express();
     app.use(cors());
     app.use(helmet()); //sets a bunch of security headers
@@ -71,7 +75,7 @@ var corsOptions = {
     //     }
     // });
 
-var databaseUrl = process.env.MONGO_URL; 
+var databaseUrl = process.env.MONGO_URL + "?retryWrites=false"; //driver bug ~3.7
 
 var collections = ["acl", "auth_req", "domains", "apps", "assets", "models", "users", "audio_items", "text_items", "audio_item_keys", "image_items", "video_items",
     "obj_items", "paths", "keys", "scores", "attributes","achievements","activity", "purchases", "storeitems", "scenes", "groups", "weblinks"];
@@ -106,9 +110,11 @@ var db = mongojs(databaseUrl, collections);
 var maxItems = 1000;
 
 var aws = require('aws-sdk');
-const { lookupService } = require("dns");
+const { lookupService, resolveNaptr, resolveMx } = require("dns");
 const { callbackify } = require("util");
 const { tmpdir } = require("os");
+const { response } = require("express");
+// const { ConfigurationServicePlaceholders } = require("aws-sdk/lib/config_service_placeholders");
 aws.config.loadFromPath('conf.json');
 var ses = new aws.SES({apiVersion : '2010-12-01'});
 var s3 = new aws.S3();
@@ -121,6 +127,8 @@ server.keepAliveTimeout = 24000;
 server.listen(process.env.PORT || 4000, function(){
     console.log("Express server listening on port 4000");
 });
+
+let ipfsCore = null;
 
 function requiredAuthentication(req, res, next) { //used as argument in routes below
   console.log("headers: " + JSON.stringify(req.headers));
@@ -238,14 +246,409 @@ function getExtension(filename) {
     return (i < 0) ? '' : filename.substr(i);
 }
 
+// async function hello() {
+//   const ipfs = await IPFS.create();
+//   const { cid } = await ipfs.add('Hello world');
+//   return cid;
+//   }
 
 
 
-
-app.get("/", function (req, res) {
+app.get("/howdy", function (req, res) {
     //send "Hello World" to the client as html
         res.send("howdy!");
 });
+function UpdateIPFSData (file, theCID, type, id, resp) {
+  try {
+    const o_id = ObjectID(id.toString());
+    db.video_items.updateOne({_id: o_id}, {$set: {cid : theCID}}, {upsert: true});
+    console.log(rez + " ipfs data " + file.cid.toString());
+    resp.send(file.cid.toString());
+  } catch {
+    resp.send("data caint");
+  }
+}
+
+
+
+async function IFPSUpUrlSource(videojson, url, type, id, resp) {
+  if (ipfsCore == null) {
+    console.log("tryna create ipfs");
+    ipfsCore = await IPFS.create();
+  }
+  try {
+    console.log("tryna push to ipfs: " + id + " url " + url);
+    var o_id = ObjectID(id.toString());
+
+    // const file = await ipfsCore.add([urlSource(url), {path: id + ".json", content: JSON.stringify(videojson)}], { wrapWithDirectory: true }); //actually adding to ipfs
+    const file = await ipfsCore.add(urlSource(url)); //actually adding to ipfs
+
+    console.log("gotsa ipfs file! " + JSON.stringify(file));
+    ipfsCore.pin.add(file.cid.toString()); //pin to local node - !await?
+
+    if (type == 'video') {
+      const theCID = file.cid.toString();
+      console.log("tryna update db with ipfsdata for video file "+ theCID);
+      db.video_items.update({_id: o_id}, {$set: {cid : theCID, ipfsData: file}}, {upsert: true},  function (err, saved) {
+        if (err || !saved) {
+            console.log("prooblemo " + err);
+            resp.send('prooblemo ' + err);
+        } else {
+            console.log("ok saved");
+            resp.send(theCID);
+        }
+      });  
+    }
+    if (type == 'audio') {
+      const theCID = file.cid.toString();
+      console.log("tryna update db with ipfsdata for video file "+ theCID);
+      db.audio_items.update({_id: o_id}, {$set: {cid : theCID, ipfsData: file}}, {upsert: true},  function (err, saved) {
+        if (err || !saved) {
+            console.log("prooblemo " + err);
+            resp.send('prooblemo ' + err);
+        } else {
+            console.log("ok saved");
+            resp.send(theCID);
+        }
+      });  
+    }
+  } catch (e) {
+    console.log("error pushing to ipfs "+ e);
+    resp.send(e);
+  }
+}
+async function ReturnURL(type, id, responseObj) { //had to (?) pass the response obj from originating method below
+  try {
+    console.log("lookin for a " + type +  " with ID " + id);
+    var o_id = ObjectID(id);
+  if (type == "video") {
+    
+    // let video = null;
+    await db.video_items.findOne({"_id": o_id}, function(err, video) {
+          if (err || !video) {
+              console.log("error getting vidoe item: " + err);
+            // return null;
+            responseObj.send(err);
+              // res.send("no video in db");
+          } else {
+            const url = s3.getSignedUrl('getObject', {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video.userID + '/video/' + video._id + "/" + video._id +"."+ video.filename, Expires: 6000});
+            console.log("urll is " + url);
+            
+            IFPSUpUrlSource(video, url, type, id, responseObj);
+          }
+      });
+    } else if (type == "audio") {
+      await db.audio_items.findOne({"_id": o_id}, function(err, audio) {
+        if (err || !audio) {
+            console.log("error getting audio item: " + err);
+          // return null;
+          responseObj.send(err);
+            // res.send("no video in db");
+        } else {
+          const url = s3.getSignedUrl('getObject', {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio.userID + '/audio/originals/' + audio._id +'.original.'+ audio.filename, Expires: 6000});
+          console.log("urll is " + url);
+          
+          IFPSUpUrlSource(audio, url, type, id, responseObj);
+        }
+    });
+    } else if (type == "model") {
+
+    } else {
+      return null;
+    }
+  } catch (e) {
+    console.log("error pushing to ipfs "+ e);
+    return (e);
+  }
+}
+
+// app.get
+// 
+  app.get("/ipfs_upl/:type/:id", cors(corsOptions), requiredAuthentication, function(req, res) {
+    //  let url = null;
+    console.log("lookin for a " + req.params.type +  " with ID " + req.params.id);
+    var o_id = ObjectID(req.params.id);
+
+      if (req.params.type == "video") {
+        db.video_items.findOne({"_id": o_id}, function(err, video) {
+          if (err || !video) {
+              console.log("error getting vidoe item: " + err);
+            res.send(err);
+          } else {
+            let params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video.userID + '/video/' + video._id + "/" + video._id +"."+ video.filename};     
+            s3.headObject(params, function(err, data) { //where it should be
+            if (err) { //object isn't in proper folder, copy it over
+              console.log("error finding original audio file " + err);
+              res.send(err);
+            } else {
+              (async () => {
+                try {
+                if (ipfsCore == null) {
+                  console.log("tryna create ipfs");
+                  ipfsCore = await IPFS.create();
+                }
+                const url = await s3.getSignedUrl('getObject', params);
+                console.log("tryna push to ipfs: " + req.params.id + " url " + url);
+
+                const file = await ipfsCore.add(urlSource(url)); //actually adding to ipfs
+            
+                console.log("gotsa ipfs file! " + JSON.stringify(file));
+                ipfsCore.pin.add(file.cid.toString());
+                const theCID = file.cid.toString();
+                console.log("tryna update db with ipfsdata for video file "+ theCID);
+                db.video_items.update({_id: o_id}, {$set: {cid : theCID}}, {upsert: true},  function (err, saved) {
+                if (err || !saved) {
+                    console.log("prooblemo " + err);
+                    res.send('prooblemo ' + err);
+                } else {
+                    console.log("ok saved");
+                    res.send(theCID);
+                }
+              });  
+              } catch (e) {
+                res.send(e);
+              }
+            })();
+            }
+          });
+        }
+      });
+        // db.video_items.findOne({"_id": o_id}, function(err, video) {
+        //     if (err || !video) {
+        //         console.log("error getting vidoe item: " + err);
+        //       res.send(err);
+        //     } else {
+
+        //     //   (async () => {
+        //     //   if (ipfsCore == null) {
+        //     //       console.log("tryna create ipfs");
+        //     //       ipfsCore = await IPFS.create();
+        //     //   }
+        //     //   const url = await s3.getSignedUrl('getObject', {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video.userID + '/video/' + video._id + "/" + video._id +"."+ video.filename, Expires: 6000});
+              
+        //     //   console.log("tryna push video to ipfs: " + req.params.id + " url " + url); 
+          
+        //     //   // const file = await ipfsCore.add([urlSource(url), {path: id + ".json", content: JSON.stringify(videojson)}], { wrapWithDirectory: true }); //actually adding to ipfs
+        //     //   const file = await ipfsCore.add(urlSource(url)); //actually adding to ipfs - better to download? 
+          
+        //     //   console.log("gotsa ipfs file! " + JSON.stringify(file));
+        //     //   ipfsCore.pin.add(file.cid.toString());
+        //     //   const theCID = file.cid.toString();
+        //     //   console.log("tryna update db with ipfsdata for video file "+ theCID);
+        //     //   db.video_items.update({_id: o_id}, {$set: {cid : theCID}}, {upsert: true},  function (err, saved) {
+        //     //   if (err || !saved) {
+        //     //       console.log("prooblemo " + err);
+        //     //       res.send('prooblemo ' + err);
+        //     //   } else {
+        //     //       console.log("ok saved");
+        //     //       res.send(theCID);
+        //     //   }
+        //     //   });  
+        //     // })();
+        //   }
+        // });
+        } else if (req.params.type == "audio") {
+          db.audio_items.findOne({"_id": o_id}, function(err, audio) {
+            if (err || !audio) {
+                console.log("error getting vidoe item: " + err);
+              res.send(err);
+            } else {
+              let params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: "users/" + audio.userID + "/audio/" + audio._id +"."+path.parse(audio.filename).name + ".mp3"};     
+              s3.headObject(params, function(err, data) { //where it should be
+              if (err) { //object isn't in proper folder, copy it over?
+                console.log("error finding original audio file " + err);
+                res.send(err);
+              } else {
+                (async () => {
+                  try {
+                  if (ipfsCore == null) {
+                    console.log("tryna create ipfs");
+                    ipfsCore = await IPFS.create();
+                  }
+                  const url = await s3.getSignedUrl('getObject', params);
+                  console.log("tryna push to ipfs: " + req.params.id + " url " + url);
+
+                  const file = await ipfsCore.add(urlSource(url)); //actually adding to ipfs
+              
+                  console.log("gotsa ipfs file! " + JSON.stringify(file));
+                  ipfsCore.pin.add(file.cid.toString());
+                  const theCID = file.cid.toString();
+                  console.log("tryna update db with ipfsdata for video file "+ theCID);
+                  db.audio_items.update({_id: o_id}, {$set: {cid : theCID}}, {upsert: true},  function (err, saved) {
+                  if (err || !saved) {
+                      console.log("prooblemo " + err);
+                      res.send('prooblemo ' + err);
+                  } else {
+                      console.log("ok saved");
+                      res.send(theCID);
+                  }
+                });
+                } catch (e) {
+                  
+                }  
+              })();
+              }
+            });
+          }
+        });
+            // (async () => {
+            // await db.audio_items.findOne({"_id": o_id}, function(err, audio) {
+            //   if (err || !audio) {
+            //       console.log("error getting audio item: " + err);
+            //     // return null;
+            //     responseObj.send(err);
+            //       // res.send("no video in db");
+            //   } else {
+            //     const url = s3.getSignedUrl('getObject', {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio.userID + '/audio/originals/' + audio._id +'.original.'+ audio.filename, Expires: 6000});
+            //     console.log("urll is " + url);
+                
+            //     IFPSUpUrlSource(audio, url, type, id, responseObj);
+            //   }
+            // });
+          // })();
+          } else if (req.params.type == "model") {
+            db.models.findOne({"_id": o_id}, function(err, model) {
+              if (err || !model) {
+                  console.log("error getting model: " + err);
+                res.send(err);
+              } else {
+                let folder = "gltf"; //todo check for usdz
+                let params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: "users/" + model.userID + "/"+folder+"/"+model.filename};     
+                s3.headObject(params, function(err, data) { //where it should be
+                if (err) { //object isn't in proper folder, copy it over?
+                  console.log("error finding original model file " + err);
+                  res.send(err);
+                } else {
+                  (async () => {
+                    try {
+                      if (ipfsCore == null) {
+                        console.log("tryna create ipfs");
+                        ipfsCore = await IPFS.create();
+                      }
+                      const url = await s3.getSignedUrl('getObject', params);
+                      console.log("tryna push to ipfs: " + req.params.id + " url " + url);
+    
+                      const file = await ipfsCore.add(urlSource(url)); //actually adding to ipfs
+                  
+                      console.log("gotsa ipfs file! " + JSON.stringify(file));
+                      ipfsCore.pin.add(file.cid.toString());
+                      const theCID = file.cid.toString();
+                      console.log("tryna update db with ipfsdata for video file "+ theCID);
+                      db.models.update({_id: o_id}, {$set: {cid : theCID}}, {upsert: true},  function (err, saved) {
+                      if (err || !saved) {
+                          console.log("prooblemo " + err);
+                          res.send('prooblemo ' + err);
+                      } else {
+                          console.log("ok saved");
+                          res.send(theCID);
+                      }
+                    });
+                    } catch (e) {
+                      
+                    }  
+                  })();
+                }
+              });
+            }
+          });
+          } else {
+            return null;
+          }
+      // } catch {
+      //   res.send("there was an error!");
+      // }
+   
+  });
+  
+// app.get("/ipfs_up/:type/:id", async function(req, res) {
+//   //  let url = null;
+
+//   try {
+//     if (ipfsCore == null) {
+//       console.log("tryna create ipfs");
+//       ipfsCore = await IPFS.create();
+//     } 
+
+      
+//     ReturnURL(req.params.type, req.params.id, res);
+     
+//   } catch (e) {
+//     res.send(e);
+//     // next(e);
+//   }
+// });
+
+app.get("/local_pinned", async function(req, res, next) {
+  if (ipfsCore == null) {
+      console.log("tryna create ipfs");
+      ipfsCore = await IPFS.create();
+  }
+  try {
+    let pinned = [];
+    for await (const { cid, type } of ipfsCore.pin.ls()) {
+      // ipfs.pin.add(cid.toString());
+      
+      if (cid != undefined) {
+        
+        // await ipfsCore.pin.rm(cid.toString());
+        // console.log("unpinned " +cid.toString());
+        if (type != "indirect") {
+          pinned.push(cid.toString());
+          console.log("pinned item: " +cid.toString() + " type " + type);
+        }
+      }
+    }
+    res.send(JSON.stringify(pinned));
+  } catch(e) {
+    next(e)
+  }
+    // let pinned = await ipfsCore.pin.ls();
+    // console.log("pinned " + JSON.stringify(pinned));
+});
+
+app.get("/ipfs_test", async function(req, res, next) {
+  //  let hello = hello();
+  // console.log("wtf");
+  if (ipfsCore == null) {
+    console.log("tryna create ipfs");
+    ipfsCore = await IPFS.create();
+  }
+  try {
+
+    // const { cid } = await ipfs.add({path: 'strangeMother.mp3', content: urlSource('http://kork.us.s3.amazonaws.com/audio/StrangeMother.mp3')});
+    // console.log('added' + cid.toString());
+    // await ipfs.pin.add(cid.toString());
+
+    // const { urlSource } = IpfsHttpClient;
+    // const ipfs = IpfsHttpClient();
+    const file = await ipfsHttpClient.add(urlSource('http://kork.us.s3.amazonaws.com/audio/StrangeMother.mp3'));
+      console.log(file);
+      ipfsCore.pin.add(file.cid.toString());
+    // }
+    // for await (const { cid, type } of ipfs.pin.ls()) {
+    //   // ipfs.pin.add(cid.toString());
+    //   if (cid != undefined) {
+    //     console.log("pinned " +cid.toString());
+    //   }
+      
+    // }
+    res.send(file);
+  } catch (e) {
+    //this will eventually be handled by your error handling middlewared
+    // res.send(e);
+    next(e);
+  }
+});
+
+// a[[]].get('/user/:id', async (req, res, next) => {
+//   try {
+//     const user = await getUserFromDb({ id: req.params.id })
+//     res.json(user);
+//   } catch (e) {
+//     //this will eventually be handled by your error handling middleware
+//     next(e) 
+//   }
+// })
 
 app.get("/scrape_webpage/:pageurl", cors(corsOptions), requiredAuthentication, function (req, res) {
     let url = "https://" + req.params.pageurl;
@@ -308,6 +711,10 @@ app.get("/scrape_webpage/:pageurl", cors(corsOptions), requiredAuthentication, f
         .catch(err => {console.log(err); res.send(err);});
         await browser.close();
     })();
+});
+
+app.post("/scrapeweb_rt/", cors(corsOptions), requiredAuthentication, function (req, res) {
+    
 });
 
 app.post("/scrapeweb/", cors(corsOptions), requiredAuthentication, function (req, res) {
@@ -861,10 +1268,10 @@ app.get("/update_s3_picturepaths/:_id", function (req,res) {
   }
 });
 
-app.get("/update_s3_audiopaths/:_id", function (req,res) {
+app.get("/update_s3_cubemappaths/:_id", function (req,res) {
     var params = {
-      Bucket: process.env.ROOT_BUCKET_NAME,
-      Prefix: 'users/' + req.params._id + '/'
+      Bucket: 'archive1',
+      Prefix: 'staging/' + req.params._id + '/cubemaps/'
     }
     getFilesRecursively();
     async function getFilesRecursively() {  
@@ -874,92 +1281,225 @@ app.get("/update_s3_audiopaths/:_id", function (req,res) {
         response.forEach((elem) => { //no need to async?
             let keySplit = elem.Key.split("/");
             let filename = keySplit[keySplit.length - 1];
-            if (((elem.Key.includes(".aif") || elem.Key.includes(".aiff") ||  elem.Key.includes(".WAV") || elem.Key.includes(".AIF") || elem.Key.includes(".AIFF") ||
-              elem.Key.includes(".wav"))) && !elem.Key.includes("/audio/originals/")) {
-              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename}, function(err, data) { //where it should be
-                if (err) { //object isn't in proper folder, copy it over
-                console.log("need to copy " + filename);  
-                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename }, function (err,data){
-                    if (err) {
-                      console.log("ERROR copyObject");
-                      console.log(err);
-                    }
-                    else {
-                      console.log('SUCCESS copyObject');
-                    }
-                  });
-                } else {
-                  // console.log("found original, no need to copy" + filename);
-                }
-              });
-            } else if (((elem.Key.includes(".ogg") || elem.Key.includes(".MP3") || elem.Key.includes(".OGG") || elem.Key.includes(".mp3"))) && !elem.Key.includes("/audio/")) {
-              oKeys = oKeys.concat(filename);
-              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename}, function(err, data) { //where it should be
-                if (err) { //object isn't in proper folder, copy it over
-                console.log("need to copy " + filename);  
-                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/originals/' + filename }, function (err,data){
-                    if (err) {
-                      console.log("ERROR copyObject");
-                      console.log(err);
-                    }
-                    else {
-                      console.log('SUCCESS copyObject');
-                    }
-                  });
-                } else {
-                  // console.log("found original, no need to copy" + filename);
-                }
-              });
-            } else if ((elem.Key.includes(".png")) && !elem.Key.includes("/audio/") && !elem.Key.includes(".original.") && !elem.Key.includes(".standard.") && !elem.Key.includes(".quarter.") && !elem.Key.includes(".half.") && !elem.Key.includes(".thumb.")) {
-              oKeys = oKeys.concat(filename);
-              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/' + filename}, function(err, data) { //where it should be
-                if (err) { //object isn't in proper folder, copy it over
-                console.log("need to copy " + filename);  
-                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/' + filename }, function (err,data){
-                    if (err) {
-                      console.log("ERROR copyObject");
-                      console.log(err);
-                    }
-                    else {
-                      console.log('SUCCESS copyObject');
-                    }
-                  });
-                } else {
-                  // console.log("found original, no need to copy" + filename);
-                }
-              });
-            } else if (((elem.Key.includes(".ogg") || elem.Key.includes(".MP3") || elem.Key.includes(".OGG") || elem.Key.includes(".mp3"))) && !elem.Key.includes(".original.")) {
-              oKeys = oKeys.concat(filename);
-              s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/' + filename}, function(err, data) { //where it should be
-                if (err) { //object isn't in proper folder, copy it over
-                console.log("need to copy " + filename);  
-                s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/audio/' + filename }, function (err,data){
-                    if (err) {
-                      console.log("ERROR copyObject");
-                      console.log(err);
-                    }
-                    else {
-                      console.log('SUCCESS copyObject');
-                    }
-                  });
-                } else {
-                  console.log("found original, no need to copy" + filename);
-                }
-              });
-            } 
+            s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/cubemaps/' + filename}, function(err, data) { //where it should be
+              if (err) { //object isn't in proper folder, copy it over
+              console.log("need to copy " + elem.Key);  
+              s3.copyObject({CopySource: 'archive1' + '/' + elem.Key, Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/cubemaps/' + filename }, function (err,data){
+                  if (err) {
+                    console.log("ERROR copyObject");
+                    console.log(err);
+                  }
+                  else {
+                    console.log('SUCCESS copyObject');
+                  }
+                });
+              } else {
+                console.log("found original, no need to copy" + filename);
+              }
+            });
+            oKeys = oKeys.concat(filename);
             });
       res.send(oKeys);
     }
 });
+app.get("/update_s3_stagingpaths/:_id", function (req,res) {
+  var params = {
+    Bucket: 'archive1',
+    Prefix: 'staging/' + req.params._id
+  }
+  getFilesRecursively();
+  async function getFilesRecursively() {  
+    let response = await getFilesRecursivelySub(params); //gimme all the things, even > 1000!
+    let oKeys = [];
+    let nKeys = [];
+      response.forEach((elem) => { //no need to async?
+          let keySplit = elem.Key.split("/");
+          let filename = keySplit[keySplit.length - 1];
+          if (!elem.Key.includes("cubemaps")) {
+          s3.headObject({Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/staging/' + filename}, function(err, data) { //where it should be
+            if (err) { //object isn't in proper folder, copy it over
+            console.log("need to copy " + elem.Key);  
+            s3.copyObject({CopySource: 'archive1' + '/' + elem.Key, Bucket: 'servicemedia', Key: 'users/' + req.params._id + '/staging/' + filename }, function (err,data){
+                if (err) {
+                  console.log("ERROR copyObject");
+                  console.log(err);
+                }
+                else {
+                  console.log('SUCCESS copyObject');
+                }
+              });
+            } else {
+              console.log("found original, no need to copy" + filename);
+            }
+          });
+          oKeys = oKeys.concat(filename);
+          }  
+        });
+    res.send(oKeys);
+  }
+});
 
-app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
+
+app.get("/update_s3_videopaths/:_id", function (req,res) {
+  var params = {
+    Bucket: process.env.ROOT_BUCKET_NAME,
+    Prefix: 'users/' + req.params._id + '/'
+  }
+  getFilesRecursively();
+  async function getFilesRecursively() {  
+    let response = await getFilesRecursivelySub(params); //gimme all the things, even > 1000!
+    let oKeys = [];
+    let nKeys = [];
+      response.forEach((elem) => { //no need to async?
+          let keySplit = elem.Key.split("/");
+          let filename = keySplit[keySplit.length - 1];
+          let videoIDSplit = filename.split(".");
+          let videoID = videoIDSplit[0]; 
+          if (elem.Key.toLowerCase().includes(".mp4") || elem.Key.toLowerCase().includes(".mov") ||  elem.Key.toLowerCase().includes(".mkv") ||  elem.Key.toLowerCase().includes(".webm")) {
+            s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/video/'+videoID+'/' + filename}, function(err, data) { //where it should be
+              if (err) { //object isn't in proper folder, copy it over
+              console.log("need to copy " + filename + " " + videoID);  
+              s3.copyObject({CopySource: process.env.ROOT_BUCKET_NAME + '/' + elem.Key, Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + req.params._id + '/video/'+videoID+'/' + filename }, function (err,data){
+                  if (err) {
+                    console.log("ERROR copyObject");
+                    console.log(err);
+                  }
+                  else {
+                    console.log('SUCCESS copyObject');
+                  }
+                });
+              } else {
+                console.log("found original, no need to copy" + filename);
+              }
+            });
+            oKeys = oKeys.concat(filename);
+          } 
+          });
+    res.send(oKeys);
+  }
+});
+
+app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //download before processing, instead of streaming it
   console.log("tryna process audio : " + req.params._id);
   var o_id = ObjectID(req.params._id);
   db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
     if (err || !audio_item) {
-        console.log("error getting image item: " + err);
-        callback("no image in db");
-        res.send("no image in db");
+        console.log("error getting audio item: " + err);
+        callback("no audio in db");
+        res.send("no audio in db");
+    } else {
+      console.log(JSON.stringify(audio_item));
+      var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
+      s3.headObject(params, function(err, data) { //where it should be
+        if (err) { //object isn't in proper folder, copy it over
+          console.log("dint find nothin at s3 like that...");
+        } else {
+          console.log("found original, mtryna download " + audio_item.filename);
+          let hasSentResponse = false;
+          (async () => {
+            // var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
+            let downloadpath = '/Volumes/SM_FAT2/grabandsqueeze/audio/'+ audio_item._id+'/';
+            let filename = audio_item._id +"."+ audio_item.filename;
+            // if (!fs.existsSync(downloadpath)){
+            //   console.log("creating directory " + downloadpath);
+            await fs.promises.mkdir(downloadpath).then().catch({if (err){return}});
+            // }
+            // let savepath = downloadpath + 'output.m3u8';
+            // console.log("tryna save audio to " + savepath);
+                // await fs.promises.mkdir(downloadpath).then().catch({if (err){return}});
+                // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
+                // await fs.promises.writeFile(downloadpath + filename, data).then().catch({if (err){return}});
+            // let data = await s3.getObject(params).createReadStream();
+            await DownloadS3File(params, downloadpath + filename).then().catch({if (err){return}});
+            console.log("file downloaded " + downloadpath + filename);
+            ffmpeg(fs.createReadStream(downloadpath + filename))
+            .setFfmpegPath(ffmpeg_static)
+            
+            .output('tmp.png')            
+            .complexFilter(
+              [
+                  '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
+              ]
+            )
+            .outputOptions(['-vframes 1'])
+            // .format('png')
+
+            .output('tmp.ogg')
+            .audioBitrate(192)
+            .audioCodec('libvorbis')
+            .format('ogg')
+
+            .output('tmp.mp3')
+            .audioBitrate(192)
+            .audioCodec('libmp3lame')
+            .format('mp3')
+
+            .on('end', () => {
+                console.log("done squeezin audio");
+                s3.putObject({
+                  Bucket: process.env.ROOT_BUCKET_NAME,
+                  Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg",
+                  Body: fs.readFileSync('tmp.ogg'),
+                  ContentType: 'audio/ogg'
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded  ogg with response: ' + JSON.stringify(resp));
+                    }
+                });
+                s3.putObject({
+                  Bucket: process.env.ROOT_BUCKET_NAME,
+                  Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3",
+                  Body: fs.readFileSync('tmp.mp3'),
+                  ContentType: 'audio/mp3'
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded mp3 with response: ' + JSON.stringify(resp));
+                    }
+                });
+                s3.putObject({
+                  Bucket: process.env.ROOT_BUCKET_NAME,
+                  Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png",
+                  Body: fs.readFileSync('tmp.png'),
+                  ContentType: 'image/png'
+                }, function (error, resp) {
+                  if (error) {
+                    console.log('error putting  pic' + error);
+                  } else {
+                    console.log('Successfully uploaded png with response: ' + JSON.stringify(resp));
+                  }
+              });
+            })
+            .on('error', err => {
+                console.error(err);
+                res.send("error! " + err);
+            })
+            .on('progress', function(info) {
+                console.log('progress ' + JSON.stringify(info));
+                if (!hasSentResponse) {
+                  hasSentResponse = true;
+                  res.send("processing!");
+                }
+            })
+            .run();
+        })();
+        }
+      });
+    }
+    });
+});
+
+app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //deprecated for download version above, stream unstable for large files
+  console.log("tryna process audio : " + req.params._id);
+  var o_id = ObjectID(req.params._id);
+  db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
+    if (err || !audio_item) {
+        console.log("error getting audio item: " + err);
+        callback("no audio in db");
+        res.send("no audio in db");
     } else {
       console.log(JSON.stringify(audio_item));
       s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename}, function(err, data) { //where it should be
@@ -972,6 +1512,7 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
             var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
             let data = await s3.getObject(params).createReadStream();
             ffmpeg(data)
+            
             .setFfmpegPath(ffmpeg_static)
             
             .output('tmp.png')            
@@ -1037,7 +1578,7 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
                 res.send("error! " + err);
             })
             .on('progress', function(info) {
-                console.log('progress ' + info.percent + '%');
+                console.log('progress ' + JSON.stringify(info));
                 if (!hasSentResponse) {
                   hasSentResponse = true;
                   res.send("processing!");
@@ -1050,7 +1591,321 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
     }
     });
 });
+const downloadFromS3 = async (params, location) => {
+  // const params = {
+  //     Bucket: process.env.ROOT_BUCKET_NAME,
+  //     Key: key,
+  // }
 
+  // const { Body } = await s3.getObject(params).promise()
+  // await fs.writeFile(location, Body);
+
+  // return true
+  return s3.getObject(params, (err) => {
+    if (err) {
+      // handle errors
+    }
+  }).promise();
+}
+function DownloadS3File (params, location) {
+
+  return new Promise((resolve, reject) => { //return promise so can await below
+    // const destPath = `/tmp/${path.basename(key)}`
+    // const params = { Bucket: 'EXAMPLE', Key: key }
+    // if (!fs.stat(location)) {
+    // fs.mkdir(location);
+    // } 
+    const s3Stream = s3.getObject(params).createReadStream();
+    const fileStream = fs.createWriteStream(location);
+    s3Stream.on('error', reject);
+    fileStream.on('error', reject);
+    // s3Stream.on('progress', )
+    fileStream.on('close', () => { 
+      resolve(location);
+      console.log("filestream closed writiing to " + location);
+    });
+    s3Stream.pipe(fileStream);
+  });
+}
+
+
+app.get('/process_video_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
+  console.log("tryna process video : " + req.params._id);
+  var o_id = ObjectID(req.params._id);
+  db.video_items.findOne({"_id": o_id}, function(err, video_item) {
+    if (err || !video_item) {
+        console.log("error getting image item: " + err);
+        callback("no image in db");
+        res.send("no image in db");
+    } else {
+      console.log(JSON.stringify(video_item));
+      s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video_item.userID + '/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename}, function(err, data) { //where it should be
+        if (err) { 
+          console.log("dint find no file at s3 like " + 'users/' + video_item.userID + '/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename);
+        } else {
+          console.log("found original " + process.env.ROOT_BUCKET_NAME + 'users/' + video_item.userID +'/video/' + video_item._id + "/" + video_item._id +"."+video_item.filename);
+          let hasSentResponse = false;
+          (async () => {
+            var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video_item.userID +'/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename};
+            let downloadpath = '/Volumes/SM_FAT2/grabandsqueeze/video/'+ video_item._id+'/';
+            let filename = video_item._id +"."+ video_item.filename;
+              if (!fs.existsSync(downloadpath)){
+                fs.mkdirSync(downloadpath);
+            }
+            let savepath = downloadpath + 'output.m3u8';
+            console.log("tryna save hls to " + savepath);
+            // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
+            // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
+            // let data = await s3.getObject(params).createReadStream();
+            await DownloadS3File(params, downloadpath + filename);
+
+            ffmpeg(downloadpath + filename)
+            .setFfmpegPath(ffmpeg_static)
+            
+            // var proc = ffmpeg('rtmp://path/to/live/stream', { timeout: 432000 })
+            .output(savepath)
+            .outputOptions([
+              // '-codec: copy',
+              '-hls_time 5',
+              '-hls_list_size 0',
+              '-hls_playlist_type vod',
+              // '-hls_base_url http://localhost:8080/',
+              '-hls_segment_filename '+ downloadpath +'%03d.ts'
+            ])
+            // set video bitrate
+            .videoBitrate(1000)
+            // set h264 preset
+            // .addOption('preset','superfast')
+            // set target codec
+            .videoCodec('libx264')
+            // set audio bitrate
+            // .audioCodec('libfdk_aac')
+            .audioBitrate('128k')
+            // set audio codec
+            // .audioCodec('libmp3lame')
+            // set number of audio channels
+            .audioChannels(2)
+            .withSize('720x480')
+            // set hls segments time
+            // .addOption('-hls_time', 10)
+            // // include all the segments in the list
+            // .addOption('-hls_list_size',0)
+            // setup event handlers
+            .on('end', () => {
+                console.log("done squeezin video");
+                try {
+                  fs.unlinkSync(downloadpath + filename);
+                  console.log("deleting original file");
+                  //file removed
+                } catch(err) {
+                  console.error(err)
+                }
+                fs.readdir(downloadpath, (err, files) => {
+                  if (err != null) {
+                    console.log("error reading directory " + err);
+                  } else {
+                    files.forEach(file => {
+                        console.log(file);
+                        if (path.extname(file) == '.ts') {
+                          s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
+                            Body: fs.readFileSync(downloadpath + file),
+                            ContentType: 'video/MP2T'
+                            }, function (error, resp) {
+                              if (error) {
+                                console.log('error putting  pic' + error);
+                              } else {
+                                console.log('Successfully uploaded ts file with response: ' + JSON.stringify(resp));
+                              }
+                          });
+                        } else if (path.extname(file) == '.m3u8') {
+                          s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
+                            Body: fs.readFileSync(downloadpath + file),
+                            ContentType: 'application/x-mpegURL'
+                            }, function (error, resp) {
+                              if (error) {
+                                console.log('error putting  pic' + error);
+                              } else {
+                                console.log('Successfully uploaded m3u8 response: ' + JSON.stringify(resp));
+                              }
+                          });
+                      }
+                    });
+                  }
+                });
+              //   s3.putObject({
+              //     Bucket: process.env.ROOT_BUCKET_NAME,
+              //     Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + video_item._id +"."+path.parse(video_item.filename).name + ".ogg",
+              //     Body: fs.readFileSync('tmp.m3u8'),
+              //     ContentType: 'application/x-mpegURL'
+              //   }, function (error, resp) {
+              //     if (error) {
+              //       console.log('error putting  pic' + error);
+              //     } else {
+              //       console.log('Successfully uploaded  video with response: ' + JSON.stringify(resp));
+              //     }
+              // });
+            })
+            .on('error', err => {
+                console.error("err: " + err);
+                res.send("error! " + err);
+            })
+            .on('progress', function(info) {
+                console.log('progress ' + JSON.stringify(info));
+                if (!hasSentResponse) {
+                  hasSentResponse = true;
+                  res.send("processing");
+                }
+            })
+            .run();
+        })();
+        }
+      });
+    }
+    });
+});
+
+app.get('/process_audio_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
+  console.log("tryna process video : " + req.params._id);
+  var o_id = ObjectID(req.params._id);
+  db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
+    if (err || !audio_item) {
+        console.log("error getting image item: " + err);
+        callback("no image in db");
+        res.send("no image in db");
+    } else {
+      console.log(JSON.stringify(audio_item));
+      s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename}, function(err, data) { //where it should be
+        if (err) { 
+          console.log("dint find no file at s3 like " + 'users/' + audio_item.userID + '/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename);
+        } else {
+          console.log("found original " + process.env.ROOT_BUCKET_NAME + 'users/' + audio_item.userID +'/audio/' + audio_item._id + "/" + audio_item._id +"."+audio_item.filename);
+          let hasSentResponse = false;
+          (async () => {
+            var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID +'/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename};
+            let downloadpath = '/Volumes/SM_FAT2/grabandsqueeze/audio/'+ audio_item._id+'/';
+            let filename = audio_item._id +"."+ audio_item.filename;
+            if (!fs.existsSync(downloadpath)){
+              fs.mkdirSync(downloadpath);
+          }
+            let savepath = downloadpath + 'output.m3u8';
+            console.log("tryna save hls to " + savepath);
+            // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
+            // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
+            // let data = await s3.getObject(params).createReadStream();
+            await DownloadS3File(params, downloadpath + filename);
+
+            ffmpeg(downloadpath + filename)
+            .setFfmpegPath(ffmpeg_static)
+            
+            // var proc = ffmpeg('rtmp://path/to/live/stream', { timeout: 432000 })
+            .output(savepath)
+            .outputOptions([
+              // '-codec: copy',
+              '-hls_time 5',
+              '-hls_list_size 0',
+              '-hls_playlist_type vod',
+              // '-hls_base_url http://localhost:8080/',
+              '-hls_segment_filename '+ downloadpath +'%03d.ts'
+            ])
+            // set video bitrate
+            .videoBitrate(1500)
+            // set h264 preset
+            // .addOption('preset','superfast')
+            // set target codec
+            .videoCodec('libx264')
+            // set audio bitrate
+            // .audioCodec('libfdk_aac')
+            .audioBitrate('128k')
+            // set audio codec
+            // .audioCodec('libmp3lame')
+            // set number of audio channels
+            .audioChannels(2)
+            .withSize('1280x720')
+            // set hls segments time
+            // .addOption('-hls_time', 10)
+            // // include all the segments in the list
+            // .addOption('-hls_list_size',0)
+            // setup event handlers
+            .on('end', () => {
+                console.log("done squeezin video");
+                try {
+                  fs.unlinkSync(downloadpath + filename);
+                  console.log("deleting original file");
+                  //file removed
+                } catch(err) {
+                  console.error(err)
+                }
+                fs.readdir(downloadpath, (err, files) => {
+                  if (err != null) {
+                    console.log("error reading directory " + err);
+                  } else {
+                    files.forEach(file => {
+                        console.log(file);
+                        if (path.extname(file) == '.ts') {
+                          s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"/hls/" + file,
+                            Body: fs.readFileSync(downloadpath + file),
+                            ContentType: 'video/MP2T'
+                            }, function (error, resp) {
+                              if (error) {
+                                console.log('error putting  pic' + error);
+                              } else {
+                                console.log('Successfully uploaded ts file with response: ' + JSON.stringify(resp));
+                              }
+                          });
+                        } else if (path.extname(file) == '.m3u8') {
+                          s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"/hls/" + file,
+                            Body: fs.readFileSync(downloadpath + file),
+                            ContentType: 'application/x-mpegURL'
+                            }, function (error, resp) {
+                              if (error) {
+                                console.log('error putting  pic' + error);
+                              } else {
+                                console.log('Successfully uploaded m3u8 response: ' + JSON.stringify(resp));
+                              }
+                          });
+                      }
+                    });
+                  }
+                });
+              //   s3.putObject({
+              //     Bucket: process.env.ROOT_BUCKET_NAME,
+              //     Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + video_item._id +"."+path.parse(video_item.filename).name + ".ogg",
+              //     Body: fs.readFileSync('tmp.m3u8'),
+              //     ContentType: 'application/x-mpegURL'
+              //   }, function (error, resp) {
+              //     if (error) {
+              //       console.log('error putting  pic' + error);
+              //     } else {
+              //       console.log('Successfully uploaded  video with response: ' + JSON.stringify(resp));
+              //     }
+              // });
+            })
+            .on('error', err => {
+                console.error("err: " + err);
+                res.send("error! " + err);
+            })
+            .on('progress', function(info) {
+                console.log('progress ' + JSON.stringify(info));
+                if (!hasSentResponse) {
+                  hasSentResponse = true;
+                  res.send("processing");
+                }
+            })
+            .run();
+        })();
+        }
+      });
+    }
+    });
+});
 // app.get("/stream_vid/", cors(corsOptions), requiredAuthentication, function (req, res) {
 //     //send "Hello World" to the client as html
 //     // console.log("trina scrape...");

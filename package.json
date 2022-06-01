@@ -37,6 +37,6 @@
     "node-cron": "^3.0.0",
     "puppeteer": "^5.0.0",
     "rtmp-server": "^0.2.0",
-    "sharp": "^0.29.1"
+    "sharp": "^0.30.5"
   }
 }

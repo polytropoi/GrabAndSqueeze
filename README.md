@@ -1,3 +1,5 @@
 # GrabAndSqueeze
 
-The main intent of this is to replace the dependency on Transloadit.com for the ServiceMedia platform, which initially means image resizing, audio transcoding, and website scraping.  Dependencies needed to support this include puppeteer, sharp, and ffmpeg. 
+Media transcoding for the ServiceMedia platform, including image resizing, audio transcoding, website scraping, and HLS video encoding/publishing.  Optional basic IPFS support for platform content, and utility methods for S3 mgmt.   Dependencies include puppeteer, sharp, and ffmpeg. 
+
+Roadmap : MIN.IO SUPPORT!

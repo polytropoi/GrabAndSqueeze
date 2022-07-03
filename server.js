@@ -1401,7 +1401,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
             let downloadpath = '/Volumes/SM_FAT2/grabandsqueeze/audio/'+ audio_item._id+'/';
             let filename = audio_item._id +"."+ audio_item.filename;
             // if (!fs.existsSync(downloadpath)){
-            //   console.log("creating directory " + downloadpath);
+            //   console.log("creating directory " + downloadpath); 
             await fs.promises.mkdir(downloadpath).then().catch({if (err){return}});
             // }
             // let savepath = downloadpath + 'output.m3u8';
@@ -1525,12 +1525,14 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
             // .format('png')
 
             .output('tmp.ogg')
-            .audioBitrate(256)
+            //.audioBitrate(256)
+            .audioQuality(1)
             .audioCodec('libvorbis')
             .format('ogg')
 
             .output('tmp.mp3')
-            .audioBitrate(256)
+            // .audioBitrate(256)
+            .audioQuality(1)
             .audioCodec('libmp3lame')
             .format('mp3')
 

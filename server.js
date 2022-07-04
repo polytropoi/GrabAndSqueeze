@@ -1,6 +1,6 @@
 //copyright 2020 servicemedia.net
 var express = require("express")
-    , IPFS = require('ipfs-core')
+    // , IPFS = require('ipfs-core')
     // , { create, urlSource } = require('ipfs-http-client')
     // , https = require('https')
     , { create, urlSource } = require('ipfs-http-client')
@@ -27,7 +27,7 @@ var express = require("express")
     require('dotenv').config();
 
 
-var rootHost = process.env.ROOT_HOST
+var rootHost = process.env.ROOT_HOST;
 var appName = "ServiceMedia";
 var topName = process.env.ROOT_NAME;
 var requirePayment = true; //if subscription is required to login, true for servicemedia
@@ -275,8 +275,7 @@ async function IFPSUpUrlSource(videojson, url, type, id, resp) {
   if (ipfsCore == null) {
     console.log("tryna create ipfs");
     ipfsCore = await IPFS.create();
-  }
-  try {
+  } try {
     console.log("tryna push to ipfs: " + id + " url " + url);
     var o_id = ObjectID(id.toString());
 
@@ -317,6 +316,7 @@ async function IFPSUpUrlSource(videojson, url, type, id, resp) {
     resp.send(e);
   }
 }
+
 async function ReturnURL(type, id, responseObj) { //had to (?) pass the response obj from originating method below
   try {
     console.log("lookin for a " + type +  " with ID " + id);

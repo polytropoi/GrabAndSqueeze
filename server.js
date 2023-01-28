@@ -15,6 +15,7 @@ var express = require("express")
     , path = require("path")
     , http = require("http")
     , fs = require("fs")
+    , minio = require('minio')
     , bodyParser = require('body-parser')
     , mongojs = require("mongojs")
     , helmet = require('helmet')
@@ -99,6 +100,17 @@ var db = mongojs(databaseUrl, collections);
         }
     });
 
+    var minioClient = null;
+    if (process.env.MINIOKEY && process.env.MINIOKEY != "" && process.env.MINIOENDPOINT && process.env.MINIOENDPOINT != "") {
+            minioClient = new minio.Client({
+            endPoint: process.env.MINIOENDPOINT,
+            port: 9000,
+            useSSL: false,
+            accessKey: process.env.MINIOKEY,
+            secretKey: process.env.MINIOSECRET
+        });
+    }
+
     // app.use(methodOverride());
 //    var sessionStore = new session.MemoryStore();
     var expiryDate = new Date(Date.now() + 60 * 60 * 1000) // 2 hour
@@ -129,6 +141,145 @@ server.listen(process.env.PORT || 4000, function(){
 });
 
 let ipfsCore = null;
+
+///////////////////////// OBJECT STORE (S3, Minio, etc) OPS BELOW - TODO - replace all s3 getSignedUrl calls with this, promised based version, to suport minio, etc... (!)
+async function ReturnPresignedUrl(bucket, key, time) {
+  if (minioClient) {
+      return minioClient.presignedGetObject(bucket, key, time);
+  } else {
+      return s3.getSignedUrl('getObject', {Bucket: bucket, Key: key, Expires: time}); //returns a promise if called in async function?
+  } 
+}
+async function PutObject (targetBucket, key, data, contentType) {
+  if (minioClient) {
+    try {
+      minioClient.putObject(targetBucket, key, data, function(err, objInfo) {
+        if(err) {
+            console.log("minioerr: " + err) // err should be null
+        } else {
+            console.log("Success", objInfo)
+        }
+      }).promise();
+    } catch (e) {
+      return e;
+    }
+  } else {
+    try {
+      s3.putObject({
+        Bucket: targetBucket,
+        Key: key,
+        Body: data,
+        ContentType: contentType
+      }, function (error, resp) {
+          if (error) {
+            console.log('error putting  pic' + error);
+          } else {
+            console.log('Successfully uploaded  pic with response: ' + resp);
+          }
+      }).promise();
+    } catch(e) {
+      return e;
+    }
+  }
+}
+async function GetObject (targetBucket, key) {
+  if (minioClient) {
+    try {
+      var size = 0
+      await minioClient.getObject(targetBucket, key, function(err, dataStream) {
+        if (err) {
+          return console.log(err)
+        }
+        dataStream.on('data', function(chunk) {
+          size += chunk.length
+        })
+        dataStream.on('end', function() {
+          console.log('End. Total size = ' + size)
+          return data
+        })
+        dataStream.on('error', function(err) {
+          console.log(err)
+        })
+      });
+    } catch (e) {
+      return e;
+    }
+  } else {
+    try {
+      s3.getObject({
+      Bucket: targetBucket,
+      Key: key,
+      }, function (error, resp) {
+        if (error) {
+          console.log('error getting the obj' + error);
+        } else {
+          console.log('Successfully gots the obj ' + resp);
+          // return resp;
+        }
+      }).promise();
+    } catch (e) {
+      return e;
+    }
+  }
+}
+async function ReturnObjectMetadata(bucket, key) { //s3.headObject == minio.statObject
+  if (minioClient) {
+    try {
+      minioClient.statObject(bucket, key, function(err, stat) { //statObject = headObject at s3
+        if (err) {
+            console.log(err);
+            return err;
+        } else {
+            console.log("minio statObject " + stat);
+          // return stat;
+        }
+      });
+    } catch (e) {
+      console.log("caught e: " +e);
+    }
+  } else {
+    try {
+      var params = {Bucket: bucket, Key: key};
+      s3.headObject(params, function (err, data) {
+        if (err) {
+            console.log("headObject error: " + err);
+        } else {
+            console.log("staged file meateada " + data);
+            return data;
+        }
+      });
+    } catch (e) {
+      console.log("caught s3 missing o9bj: "+ e);
+      return e
+    }
+  }
+}
+async function CopyObject(targetBucket, copySource, key) {
+  if (minioClient) {
+    minioClient.copyObject(targetBucket, key, copySource, function(e, data) {
+      if (e) {
+          return e;
+      } else {
+          console.log("Successfully copied the object:");
+          console.log("etag = " + data.etag + ", lastModified = " + data.lastModified);
+          return data;
+      }
+      
+    });
+  } else {
+      s3.copyObject({Bucket: targetBucket, CopySource: copySource, Key: key}, function (err,data){
+          if (err) {
+              console.log("ERROR copyObject" + err);
+              return err;
+          } else {
+              console.log("SUCCESS copyObject key " + key );
+              return data;
+          }
+      });
+  }
+} 
+/////////////////////////////
+
 
 function requiredAuthentication(req, res, next) { //used as argument in routes below
   console.log("headers: " + JSON.stringify(req.headers));
@@ -210,35 +361,35 @@ function validURL(str) {
   }
 
 
-  async function getObject (bucket, objectKey) {
-    try {
-      const params = {
-        Bucket: bucket,
-        Key: objectKey 
-      }
+  // async function getObject (bucket, objectKey) {
+  //   try {
+  //     const params = {
+  //       Bucket: bucket,
+  //       Key: objectKey 
+  //     }
   
-      const data = await s3.getObject(params).promise();
+  //     const data = await s3.getObject(params).promise();
   
-      return data.Body;
-    } catch (e) {
-      throw new Error(`Could not retrieve file from S3: ${e.message}`)
-    }
-  }
-  async function putObject (bucket, objectKey, data) {
-    try {
-      const params = {
-        Bucket: bucket,
-        Key: objectKey,
-        Body: data 
-      }
+  //     return data.Body;
+  //   } catch (e) {
+  //     throw new Error(`Could not retrieve file from S3: ${e.message}`)
+  //   }
+  // }
+  // async function putObject (bucket, objectKey, data) {
+  //   try {
+  //     const params = {
+  //       Bucket: bucket,
+  //       Key: objectKey,
+  //       Body: data 
+  //     }
   
-      const data = await s3.putObject(params).promise();
+  //     const data = await s3.putObject(params).promise();
   
-      return data.Body;
-    } catch (e) {
-      throw new Error(`Could not retrieve file from S3: ${e.message}`)
-    }
-  }
+  //     return data.Body;
+  //   } catch (e) {
+  //     throw new Error(`Could not retrieve file from S3: ${e.message}`)
+  //   }
+  // }
 
 function getExtension(filename) {
     // console.log("tryna get extension of " + filename);
@@ -894,6 +1045,7 @@ app.get('/resize_uploaded_picture/:_id', cors(corsOptions), requiredAuthenticati
             callback("no image in db");
             res.send("no image in db");
         } else {
+            
             var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename};
             let extension = getExtension(image.filename).toLowerCase();
             let contentType = 'image/jpeg';
@@ -902,266 +1054,606 @@ app.get('/resize_uploaded_picture/:_id', cors(corsOptions), requiredAuthenticati
               contentType = 'image/png';
               format = 'png';
             }
-            s3.headObject(params, function (err, url) { //first check that the original file is in place
-              if (err) {
-                  console.log(err);
-                  res.send("no image in bucket");
-              } else {
-              if (err) {
-                  console.log(err);
-                  res.end("couldn't get no image data");
-              } else {
-                  (async () => { //do these jerbs one at a time..
-                  let data = await s3.getObject(params).promise();
-                  if (format == 'jpg') {
-                  await sharp(data.Body)
-                  .resize({
-                    kernel: sharp.kernel.nearest,
-                    height: 1024,
-                    width: 1024,
-                    fit: 'contain'
-                  })
-                  .extend({
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    background: { r: 0, g: 0, b: 0, alpha: 1 }
-                  })
-                  .toFormat(format)
-                  .toBuffer()
-                  .then(rdata => {
-                        s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                            if (error) {
-                              console.log('error putting  pic' + error);
-                            } else {
-                              console.log('Successfully uploaded  pic with response: ' + resp);
-                            }
-                        })
-                      })
-                  .catch(err => {console.log(err); res.end(err);});
-                  await sharp(data.Body)
-                  .resize({
-                    kernel: sharp.kernel.nearest,
-                    height: 512,
-                    width: 512,
-                    fit: 'contain'
-                  })
-                  .extend({
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    background: { r: 0, g: 0, b: 0, alpha: 1 }
-                  })
-                  .toFormat(format)
-                  .toBuffer()
-                  .then(rdata => {
-                      s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                          if (error) {
-                            console.log('error putting  pic' + error);
-                          } else {
-                            console.log('Successfully uploaded  pic with response: ' + resp);
-                          }
-                      })
-                    })
-                  .catch(err => {console.log(err); res.end(err);});
-                  await sharp(data.Body)
-                  .resize({
-                    kernel: sharp.kernel.nearest,
-                    height: 256,
-                    width: 256,
-                    fit: 'contain'
-                  })
-                  .extend({
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    background: { r: 0, g: 0, b: 0, alpha: 1 }
-                  })
-                  .toFormat(format)
-                  .toBuffer()
-                  .then(rdata => {
-                      // let buf = Buffer.from(rdata);
-                      // let encodedData = rdata.toString('base64');
-                      s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                          if (error) {
-                            console.log('error putting  pic' + error);
-                          } else {
-                            console.log('Successfully uploaded  pic with response: ' + resp);
-                          }
-                      })
-                    })
-                  .catch(err => {console.log(err); res.end(err);});
-                  await sharp(data.Body)
-                  .resize({
-                    kernel: sharp.kernel.nearest,
-                    height: 128,
-                    width: 128,
-                    fit: 'contain'
-                  })
-                  .extend({
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    background: { r: 0, g: 0, b: 0, alpha: 1 }
-                  })
-                  .toFormat(format)
-                  .toBuffer()
-                  .then(rdata => {
-                      // let buf = Buffer.from(rdata);
-                      // let encodedData = rdata.toString('base64');
-                      s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                          if (error) {
-                            console.log('error putting  pic' + error);
-                          } else {
-                            console.log('Successfully uploaded  pic with response: ' + resp);
-                          }
-                      })
-                    })
-                  .catch(err => {console.log(err); res.end(err);});
-                  res.send("resize successful!");
-                
-                } else { //if png, keep bg transparent
-                  console.log("format != jpg");
-                  await sharp(data.Body)
-                  .resize({
-                    kernel: sharp.kernel.nearest,
-                    height: 1024,
-                    width: 1024,
-                    fit: 'contain',
-                    background: { r: 0, g: 0, b: 0, alpha: 0 }
-                  })
-                  .toFormat(format)
-                  .toBuffer()
-                  .then(rdata => {
-                        s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                            if (error) {
-                              console.log('error putting  pic' + error);
-                            } else {
-                              console.log('Successfully uploaded  pic with response: ' + resp);
-                            }
-                        })
-                      })
-                  .catch(err => {console.log(err); res.end(err);});
-                  await sharp(data.Body)
-                  .resize({
-                    kernel: sharp.kernel.nearest,
-                    height: 512,
-                    width: 512,
-                    fit: 'contain',
-                    ackground: { r: 0, g: 0, b: 0, alpha: 0 }
-                  })
-                  .toFormat(format)
-                  .toBuffer()
-                  .then(rdata => {
-                      s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                          if (error) {
-                            console.log('error putting  pic' + error);
-                          } else {
-                            console.log('Successfully uploaded  pic with response: ' + resp);
-                          }
-                      })
-                    })
-                  .catch(err => {console.log(err); res.end(err);});
-                  await sharp(data.Body)
-                  .resize({
-                    kernel: sharp.kernel.nearest,
-                    height: 256,
-                    width: 256,
-                    fit: 'contain',
-                    background: { r: 0, g: 0, b: 0, alpha: 0 }
-                  })
-                  .toFormat(format)
-                  .toBuffer()
-                  .then(rdata => {
-                      // let buf = Buffer.from(rdata);
-                      // let encodedData = rdata.toString('base64');
-                      s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                          if (error) {
-                            console.log('error putting  pic' + error);
-                          } else {
-                            console.log('Successfully uploaded  pic with response: ' + resp);
-                          }
-                      })
-                    })
-                  .catch(err => {console.log(err); res.end(err);});
-                  await sharp(data.Body)
-                  .resize({
-                    kernel: sharp.kernel.nearest,
-                    height: 128,
-                    width: 128,
-                    fit: 'contain',
-                    background: { r: 0, g: 0, b: 0, alpha: 0 }
-                  })
-                  .toFormat(format)
-                  .toBuffer()
-                  .then(rdata => {
-                      // let buf = Buffer.from(rdata);
-                      // let encodedData = rdata.toString('base64');
-                      s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                          if (error) {
-                            console.log('error putting  pic' + error);
-                          } else {
-                            console.log('Successfully uploaded  pic with response: ' + resp);
-                          }
-                      })
-                    })
-                  .catch(err => {console.log(err); res.end(err);});
-                  res.send("resize successful!");
-                
-                }
+            // s3.headObject(params, function (err, url) { //first check that the original file is in place
+            //   if (err) {
+            //       console.log(err);
+            //       res.send("no image in bucket");
+            //   } else {
+              // if (err) {
+              //     console.log(err);
+              //     res.send("couldn't get no image data");
+              // } else {
+            (async () => { //do these jerbs one at a time..
+                    // console.log
+            let sourceFileExists = false;
+            let mdata = ReturnObjectMetadata(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename);
+            // console.log("mdata: " + mdata);
+            // if (mdata) 
+            // mdata.then((metadata) => {
+            //   console.log("gots metadata :" + metadata);
+            //   sourceFileExists = true;
+            // })
+            // .catch(err => {
+            //   console.log(err); 
+            //   res.send(err);
+            // });
+            // console.log(fileMeta);
+            // console.log("mdata: " + mdata);
+            if (mdata) {
+              let data = null;
+                  if (minioClient) {
 
-                })();//end async
-                
+                  } else {
+                    data = await s3.getObject(params).promise();
                   }
-                }
-            });
-            console.log("returning image item : " + JSON.stringify(image));
+                    // let 
+                    // let data = await GetObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename);
+                    // bdata.then((data)
+                    if (format == 'jpg') {
+                    await sharp(data.Body)
+                    .resize({
+                      kernel: sharp.kernel.nearest,
+                      height: 1024,
+                      width: 1024,
+                      fit: 'contain'
+                    })
+                    .extend({
+                      top: 0,
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      background: { r: 0, g: 0, b: 0, alpha: 1 }
+                    })
+                    .toFormat(format)
+                    .toBuffer()
+                    .then(rdata => {
+                      // PutObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, contentType );
+                      //   console.log(putObj);
+
+                      if (minioClient) {
+                        minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, function(err, objInfo) {
+                          if(err) {
+                              console.log("minioerr: " + err) // err should be null
+                          } else {
+                             console.log("Success", objInfo)
+                          }
+                        });
+                      } else {
+
+                        
+                        s3.putObject({
+                          Bucket: process.env.ROOT_BUCKET_NAME,
+                          Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                          Body: rdata,
+                          ContentType: contentType
+                        }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
+                        });
+                      }
+                    })
+                      
+                    .catch(err => {console.log(err); res.send(err);});
+                    await sharp(data.Body)
+                    .resize({
+                      kernel: sharp.kernel.nearest,
+                      height: 512,
+                      width: 512,
+                      fit: 'contain'
+                    })
+                    .extend({
+                      top: 0,
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      background: { r: 0, g: 0, b: 0, alpha: 1 }
+                    })
+                    .toFormat(format)
+                    .toBuffer()
+                    .then(rdata => {
+                        s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                            Body: rdata,
+                            ContentType: contentType
+                          }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
+                        })
+                      })
+                    .catch(err => {console.log(err); res.send(err);});
+                    await sharp(data.Body)
+                    .resize({
+                      kernel: sharp.kernel.nearest,
+                      height: 256,
+                      width: 256,
+                      fit: 'contain'
+                    })
+                    .extend({
+                      top: 0,
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      background: { r: 0, g: 0, b: 0, alpha: 1 }
+                    })
+                    .toFormat(format)
+                    .toBuffer()
+                    .then(rdata => {
+                        // let buf = Buffer.from(rdata);
+                        // let encodedData = rdata.toString('base64');
+                        s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                            Body: rdata,
+                            ContentType: contentType
+                          }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
+                        })
+                      })
+                    .catch(err => {console.log(err); res.send(err);});
+                    await sharp(data.Body)
+                    .resize({
+                      kernel: sharp.kernel.nearest,
+                      height: 128,
+                      width: 128,
+                      fit: 'contain'
+                    })
+                    .extend({
+                      top: 0,
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      background: { r: 0, g: 0, b: 0, alpha: 1 }
+                    })
+                    .toFormat(format)
+                    .toBuffer()
+                    .then(rdata => {
+                        // let buf = Buffer.from(rdata);
+                        // let encodedData = rdata.toString('base64');
+                        s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                            Body: rdata,
+                            ContentType: contentType
+                          }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
+                        })
+                      })
+                    .catch(err => {console.log(err); res.send(err);});
+                    console.log("pics have been mangled!");  
+                    res.send("resize successful!");
+                    
+                  } else { //if png, keep bg transparent
+                    console.log("format != jpg");
+                    await sharp(data.Body)
+                    .resize({
+                      kernel: sharp.kernel.nearest,
+                      height: 1024,
+                      width: 1024,
+                      fit: 'contain',
+                      background: { r: 0, g: 0, b: 0, alpha: 0 }
+                    })
+                    .toFormat(format)
+                    .toBuffer()
+                    .then(rdata => {
+                          s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                            Body: rdata,
+                            ContentType: contentType
+                          }, function (error, resp) {
+                              if (error) {
+                                console.log('error putting  pic' + error);
+                              } else {
+                                console.log('Successfully uploaded  pic with response: ' + resp);
+                              }
+                          })
+                        })
+                    .catch(err => {console.log(err); res.send(err);});
+                    await sharp(data.Body)
+                    .resize({
+                      kernel: sharp.kernel.nearest,
+                      height: 512,
+                      width: 512,
+                      fit: 'contain',
+                      ackground: { r: 0, g: 0, b: 0, alpha: 0 }
+                    })
+                    .toFormat(format)
+                    .toBuffer()
+                    .then(rdata => {
+                        s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                            Body: rdata,
+                            ContentType: contentType
+                          }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
+                        })
+                      })
+                    .catch(err => {console.log(err); res.send(err);});
+                    await sharp(data.Body)
+                    .resize({
+                      kernel: sharp.kernel.nearest,
+                      height: 256,
+                      width: 256,
+                      fit: 'contain',
+                      background: { r: 0, g: 0, b: 0, alpha: 0 }
+                    })
+                    .toFormat(format)
+                    .toBuffer()
+                    .then(rdata => {
+                        // let buf = Buffer.from(rdata);
+                        // let encodedData = rdata.toString('base64');
+                        s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                            Body: rdata,
+                            ContentType: contentType
+                          }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
+                        })
+                      })
+                    .catch(err => {console.log(err); res.send(err);});
+                    await sharp(data.Body)
+                    .resize({
+                      kernel: sharp.kernel.nearest,
+                      height: 128,
+                      width: 128,
+                      fit: 'contain',
+                      background: { r: 0, g: 0, b: 0, alpha: 0 }
+                    })
+                    .toFormat(format)
+                    .toBuffer()
+                    .then(rdata => {
+                        // let buf = Buffer.from(rdata);
+                        // let encodedData = rdata.toString('base64');
+                        
+                        s3.putObject({
+                            Bucket: process.env.ROOT_BUCKET_NAME,
+                            Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                            Body: rdata,
+                            ContentType: contentType
+                          }, function (error, resp) {
+                            if (error) {
+                              console.log('error putting  pic' + error);
+                            } else {
+                              console.log('Successfully uploaded  pic with response: ' + resp);
+                            }
+                        })
+                      })
+                    .catch(err => {console.log(err); res.send(err);});
+                    console.log("pics have been mangled!");
+                    res.send("resize successful!");
+                  
+                  }
+              } else {
+                console.log("no source file found!");
+              }
+            })();//end async
+
+                // }
+            // });
+            // console.log("returning image item : " + JSON.stringify(image));
         }
     });
+});
+
+
+app.get('/resize_uploaded_picture_old/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //presumes pic has already been uploaded to production folder and db entry made
+  console.log("tryna resize pic with key: " + req.params._id);
+  var o_id = ObjectID(req.params._id);
+  db.image_items.findOne({"_id": o_id}, function(err, image) {
+      if (err || !image) {
+          console.log("error getting image item: " + err);
+          callback("no image in db");
+          res.send("no image in db");
+      } else {
+          var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename};
+          let extension = getExtension(image.filename).toLowerCase();
+          let contentType = 'image/jpeg';
+          let format = 'jpg';
+          if (extension == ".PNG" || extension == ".png") {
+            contentType = 'image/png';
+            format = 'png';
+          }
+          s3.headObject(params, function (err, url) { //first check that the original file is in place
+            if (err) {
+                console.log(err);
+                res.send("no image in bucket");
+            } else {
+            // if (err) {
+            //     console.log(err);
+            //     res.send("couldn't get no image data");
+            // } else {
+                (async () => { //do these jerbs one at a time..
+                  // console.log
+                  
+                let data = await s3.getObject(params).promise();
+                if (format == 'jpg') {
+                await sharp(data.Body)
+                .resize({
+                  kernel: sharp.kernel.nearest,
+                  height: 1024,
+                  width: 1024,
+                  fit: 'contain'
+                })
+                .extend({
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  background: { r: 0, g: 0, b: 0, alpha: 1 }
+                })
+                .toFormat(format)
+                .toBuffer()
+                .then(rdata => {
+                  // if (minioClient) {
+                  //   minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, function(err, objInfo) {
+                  //     if(err) {
+                  //         console.log("minioerr: " + err) // err should be null
+                  //     } else {
+                  //        console.log("Success", objInfo)
+                  //     }
+                  //   });
+                  // } else {
+                    s3.putObject({
+                      Bucket: process.env.ROOT_BUCKET_NAME,
+                      Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                      Body: rdata,
+                      ContentType: contentType
+                    }, function (error, resp) {
+                        if (error) {
+                          console.log('error putting  pic' + error);
+                        } else {
+                          console.log('Successfully uploaded  pic with response: ' + resp);
+                        }
+                    })
+                  // }
+                })
+                  
+                .catch(err => {console.log(err); res.send(err);});
+                await sharp(data.Body)
+                .resize({
+                  kernel: sharp.kernel.nearest,
+                  height: 512,
+                  width: 512,
+                  fit: 'contain'
+                })
+                .extend({
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  background: { r: 0, g: 0, b: 0, alpha: 1 }
+                })
+                .toFormat(format)
+                .toBuffer()
+                .then(rdata => {
+                    s3.putObject({
+                        Bucket: process.env.ROOT_BUCKET_NAME,
+                        Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                        Body: rdata,
+                        ContentType: contentType
+                      }, function (error, resp) {
+                        if (error) {
+                          console.log('error putting  pic' + error);
+                        } else {
+                          console.log('Successfully uploaded  pic with response: ' + resp);
+                        }
+                    })
+                  })
+                .catch(err => {console.log(err); res.send(err);});
+                await sharp(data.Body)
+                .resize({
+                  kernel: sharp.kernel.nearest,
+                  height: 256,
+                  width: 256,
+                  fit: 'contain'
+                })
+                .extend({
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  background: { r: 0, g: 0, b: 0, alpha: 1 }
+                })
+                .toFormat(format)
+                .toBuffer()
+                .then(rdata => {
+                    // let buf = Buffer.from(rdata);
+                    // let encodedData = rdata.toString('base64');
+                    s3.putObject({
+                        Bucket: process.env.ROOT_BUCKET_NAME,
+                        Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                        Body: rdata,
+                        ContentType: contentType
+                      }, function (error, resp) {
+                        if (error) {
+                          console.log('error putting  pic' + error);
+                        } else {
+                          console.log('Successfully uploaded  pic with response: ' + resp);
+                        }
+                    })
+                  })
+                .catch(err => {console.log(err); res.send(err);});
+                await sharp(data.Body)
+                .resize({
+                  kernel: sharp.kernel.nearest,
+                  height: 128,
+                  width: 128,
+                  fit: 'contain'
+                })
+                .extend({
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  background: { r: 0, g: 0, b: 0, alpha: 1 }
+                })
+                .toFormat(format)
+                .toBuffer()
+                .then(rdata => {
+                    // let buf = Buffer.from(rdata);
+                    // let encodedData = rdata.toString('base64');
+                    s3.putObject({
+                        Bucket: process.env.ROOT_BUCKET_NAME,
+                        Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                        Body: rdata,
+                        ContentType: contentType
+                      }, function (error, resp) {
+                        if (error) {
+                          console.log('error putting  pic' + error);
+                        } else {
+                          console.log('Successfully uploaded  pic with response: ' + resp);
+                        }
+                    })
+                  })
+                .catch(err => {console.log(err); res.send(err);});
+                console.log("pics have been mangled!");  
+                res.send("resize successful!");
+                
+              } else { //if png, keep bg transparent
+                console.log("format != jpg");
+                await sharp(data.Body)
+                .resize({
+                  kernel: sharp.kernel.nearest,
+                  height: 1024,
+                  width: 1024,
+                  fit: 'contain',
+                  background: { r: 0, g: 0, b: 0, alpha: 0 }
+                })
+                .toFormat(format)
+                .toBuffer()
+                .then(rdata => {
+                      s3.putObject({
+                        Bucket: process.env.ROOT_BUCKET_NAME,
+                        Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                        Body: rdata,
+                        ContentType: contentType
+                      }, function (error, resp) {
+                          if (error) {
+                            console.log('error putting  pic' + error);
+                          } else {
+                            console.log('Successfully uploaded  pic with response: ' + resp);
+                          }
+                      })
+                    })
+                .catch(err => {console.log(err); res.send(err);});
+                await sharp(data.Body)
+                .resize({
+                  kernel: sharp.kernel.nearest,
+                  height: 512,
+                  width: 512,
+                  fit: 'contain',
+                  ackground: { r: 0, g: 0, b: 0, alpha: 0 }
+                })
+                .toFormat(format)
+                .toBuffer()
+                .then(rdata => {
+                    s3.putObject({
+                        Bucket: process.env.ROOT_BUCKET_NAME,
+                        Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                        Body: rdata,
+                        ContentType: contentType
+                      }, function (error, resp) {
+                        if (error) {
+                          console.log('error putting  pic' + error);
+                        } else {
+                          console.log('Successfully uploaded  pic with response: ' + resp);
+                        }
+                    })
+                  })
+                .catch(err => {console.log(err); res.send(err);});
+                await sharp(data.Body)
+                .resize({
+                  kernel: sharp.kernel.nearest,
+                  height: 256,
+                  width: 256,
+                  fit: 'contain',
+                  background: { r: 0, g: 0, b: 0, alpha: 0 }
+                })
+                .toFormat(format)
+                .toBuffer()
+                .then(rdata => {
+                    // let buf = Buffer.from(rdata);
+                    // let encodedData = rdata.toString('base64');
+                    s3.putObject({
+                        Bucket: process.env.ROOT_BUCKET_NAME,
+                        Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                        Body: rdata,
+                        ContentType: contentType
+                      }, function (error, resp) {
+                        if (error) {
+                          console.log('error putting  pic' + error);
+                        } else {
+                          console.log('Successfully uploaded  pic with response: ' + resp);
+                        }
+                    })
+                  })
+                .catch(err => {console.log(err); res.send(err);});
+                await sharp(data.Body)
+                .resize({
+                  kernel: sharp.kernel.nearest,
+                  height: 128,
+                  width: 128,
+                  fit: 'contain',
+                  background: { r: 0, g: 0, b: 0, alpha: 0 }
+                })
+                .toFormat(format)
+                .toBuffer()
+                .then(rdata => {
+                    // let buf = Buffer.from(rdata);
+                    // let encodedData = rdata.toString('base64');
+                    
+                    s3.putObject({
+                        Bucket: process.env.ROOT_BUCKET_NAME,
+                        Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                        Body: rdata,
+                        ContentType: contentType
+                      }, function (error, resp) {
+                        if (error) {
+                          console.log('error putting  pic' + error);
+                        } else {
+                          console.log('Successfully uploaded  pic with response: ' + resp);
+                        }
+                    })
+                  })
+                .catch(err => {console.log(err); res.send(err);});
+                console.log("pics have been mangled!");
+                res.send("resize successful!");
+              
+              }
+
+              })();//end async
+              
+                // }
+              }
+          });
+          console.log("returning image item : " + JSON.stringify(image));
+      }
+  });
 });
 
 async function getFilesRecursivelySub(param) { //function to get all keys from bucket, not just 1000
@@ -1398,7 +1890,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
           let hasSentResponse = false;
           (async () => {
             // var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
-            let downloadpath = '/Volumes/SM_FAT2/grabandsqueeze/audio/'+ audio_item._id+'/';
+            let downloadpath = '/Volumes/STUMP_FAT_B/stump/ztash/audio/'+ audio_item._id+'/';
             let filename = audio_item._id +"."+ audio_item.filename;
             // if (!fs.existsSync(downloadpath)){
             //   console.log("creating directory " + downloadpath); 
@@ -1649,7 +2141,7 @@ app.get('/process_video_hls/:_id', cors(corsOptions), requiredAuthentication, fu
           let hasSentResponse = false;
           (async () => {
             var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video_item.userID +'/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename};
-            let downloadpath = '/Volumes/SM_FAT2/grabandsqueeze/video/'+ video_item._id+'/';
+            let downloadpath = '/Volumes/STUMP_FAT_B/stump/video/'+ video_item._id+'/';
             let filename = video_item._id +"."+ video_item.filename;
               if (!fs.existsSync(downloadpath)){
                 fs.mkdirSync(downloadpath);

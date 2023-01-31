@@ -100,16 +100,16 @@ var db = mongojs(databaseUrl, collections);
         }
     });
 
-    var minioClient = null;
-    if (process.env.MINIOKEY && process.env.MINIOKEY != "" && process.env.MINIOENDPOINT && process.env.MINIOENDPOINT != "") {
-            minioClient = new minio.Client({
-            endPoint: process.env.MINIOENDPOINT,
-            port: 9000,
-            useSSL: false,
-            accessKey: process.env.MINIOKEY,
-            secretKey: process.env.MINIOSECRET
-        });
-    }
+    // var minioClient = null;
+    // if (process.env.MINIOKEY && process.env.MINIOKEY != "" && process.env.MINIOENDPOINT && process.env.MINIOENDPOINT != "") {
+    //         minioClient = new minio.Client({
+    //         endPoint: process.env.MINIOENDPOINT,
+    //         port: 9000,
+    //         useSSL: false,
+    //         accessKey: process.env.MINIOKEY,
+    //         secretKey: process.env.MINIOSECRET
+    //     });
+    // }
 
     // app.use(methodOverride());
 //    var sessionStore = new session.MemoryStore();
@@ -127,9 +127,27 @@ const { callbackify } = require("util");
 const { tmpdir } = require("os");
 const { response } = require("express");
 // const { ConfigurationServicePlaceholders } = require("aws-sdk/lib/config_service_placeholders");
-aws.config.loadFromPath('conf.json');
-var ses = new aws.SES({apiVersion : '2010-12-01'});
+// aws.config.loadFromPath('conf.json');
+// var ses = new aws.SES({apiVersion : '2010-12-01'});
+// var s3 = new aws.S3();
+
+aws.config = new aws.Config({accessKeyId: process.env.AWSKEY, secretAccessKey: process.env.AWSSECRET, region: process.env.AWSREGION});
+// var ses = new aws.SES({apiVersion : '2010-12-01'});
 var s3 = new aws.S3();
+
+var minioClient = null;
+if (process.env.MINIOKEY && process.env.MINIOKEY != "" && process.env.MINIOENDPOINT && process.env.MINIOENDPOINT != "") {
+        minioClient = new minio.Client({
+        endPoint: process.env.MINIOENDPOINT,
+        port: 9000,
+        useSSL: false,
+        accessKey: process.env.MINIOKEY,
+        secretKey: process.env.MINIOSECRET
+    });
+}
+
+
+
 
 var appAuth = "noauth";
 
@@ -1041,443 +1059,480 @@ app.get('/resize_uploaded_picture/:_id', cors(corsOptions), requiredAuthenticati
     console.log("tryna resize pic with key: " + req.params._id);
     var o_id = ObjectID(req.params._id);
     db.image_items.findOne({"_id": o_id}, function(err, image) {
-        if (err || !image) {
-            console.log("error getting image item: " + err);
-            callback("no image in db");
-            res.send("no image in db");
-        } else {
-            let oKey = "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename;
-            var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: oKey};
-            let extension = getExtension(image.filename).toLowerCase();
-            let contentType = 'image/jpeg';
-            let format = 'jpg';
-            if (extension == ".PNG" || extension == ".png") {
-              contentType = 'image/png';
-              format = 'png';
-            }
-            // s3.headObject(params, function (err, url) { //first check that the original file is in place
-            //   if (err) {
-            //       console.log(err);
-            //       res.send("no image in bucket");
-            //   } else {
-              // if (err) {
-              //     console.log(err);
-              //     res.send("couldn't get no image data");
-              // } else {
-            (async () => { //do these jerbs one at a time..
-                    // console.log
-            let sourceFileExists = true;
-            // let mdata = await ReturnObjectMetadata(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename).promise();
-            // // console.log("mdata: " + mdata);
-            // // if (mdata) 
-
-
-            // mdata.then((metadata) => {
-            //   console.log("gots metadata :" + metadata);
-            //   sourceFileExists = true;
-            // })
-            // .catch(err => {
-            //   console.log(err); 
-            //   res.send(err);
-            // });
-            // console.log(fileMeta);
-                // let head = await function () {
-                //   if (minioClient) {
-          
-                //       await minioClient.statObject(process.env.ROOT_BUCKET_NAME, oKey, function(err, stat) { //statObject = headObject at s3
-                //         if (err) {
-                //             console.log(err);
-                //             return err;
-                //         } else {
-                //           sourceFileExists = true;
-                //             console.log("minio statObject " + JSON.stringify(stat));
-                //           // return stat;
-                        
-                //         }
-                //       });
-                //   } else {
-                    
-                //       // var params = {Bucket: bucket, Key: key};
-                //       await s3.headObject(params, function (err, data) {
-                //         if (err) {
-                //             console.log("headObject error: " + err);
-                //         } else {
-                //             console.log("staged file meateada " + data);
-                //             sourceFileExists = true;
-                //         }
-                //       });
-                //   }
-                // }
-            // console.log("mdata: " + mdata);
-            if (sourceFileExists) { //still just a promise?
-              let data = null;
-              let buff = [];
-                  if (minioClient) {
-                    var size = 0
-                    data = await minioClient.getObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename, function(err, dataStream) {
-                      if (err) {
-                        return console.log(err)
-                      }
-                      dataStream.on('data', function(chunk) {
-                        size += chunk.length
-                        buff.push(chunk);
-                      })
-                      dataStream.on('end', function() {
-                        console.log('End. Total size = ' + size)
-                        // return data
-                        resolve(buff);
-                      })
-                      dataStream.on('error', function(err) {
-                        console.log(err)
-                      }).promise();
-                    });
+      if (err || !image) {
+        console.log("error getting image item: " + err);
+        callback("no image in db");
+        res.send("no image in db");
+      } else {
+          let oKey = "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename;
+          var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: oKey};
+          let extension = getExtension(image.filename).toLowerCase();
+          let contentType = 'image/jpeg';
+          let format = 'jpg';
+          if (extension == ".PNG" || extension == ".png") {
+            contentType = 'image/png';
+            format = 'png';
+          }
+          // s3.headObject(params, function (err, url) { //first check that the original file is in place
+          //   if (err) {
+          //       console.log(err);
+          //       res.send("no image in bucket");
+          //   } else {
+            // if (err) {
+            //     console.log(err);
+            //     res.send("couldn't get no image data");
+            // } else {
+        (async () => { //do these jerbs one at a time..
+        
+        if (minioClient) {
+            
+            let key = "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename;
+            let savedLocation = process.env.LOCAL_TEMP_FOLDER + image.filename;
+            await DownloadMinioFile(process.env.ROOT_BUCKET_NAME, key, savedLocation)
+            .then()
+            .catch({if (err){return}});
+            
+            if (format == "jpg") {
+              await sharp(process.env.LOCAL_TEMP_FOLDER + image.filename)
+              .resize({
+                kernel: sharp.kernel.nearest,
+                height: 1024,
+                width: 1024,
+                fit: 'contain'
+              })
+              .extend({
+                top: 0,
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: { r: 0, g: 0, b: 0, alpha: 1 }
+              })
+              .toFormat(format)
+              .toBuffer()
+              .then(rdata => {
+                minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, function(err, objInfo) {
+                  if(err) {
+                      console.log("minioerr: " + err) // err should be null
                   } else {
-                    data = await s3.getObject(params).promise();
+                      console.log("Success with standard pic", objInfo)
                   }
-                    // let 
-                    // let data = await GetObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/originals/" + image._id +".original."+image.filename);
-                    // bdata.then((data)
-                    if (format == 'jpg') {
-                    // await sharp(data.Body)
-                    await sharp(buff)
-                    .resize({
-                      kernel: sharp.kernel.nearest,
-                      height: 1024,
-                      width: 1024,
-                      fit: 'contain'
-                    })
-                    .extend({
-                      top: 0,
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      background: { r: 0, g: 0, b: 0, alpha: 1 }
-                    })
-                    .toFormat(format)
-                    .toBuffer()
-                    .then(rdata => {
-                      // PutObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, contentType );
-                      //   console.log(putObj);
-
-                      if (minioClient) {
-                        minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, function(err, objInfo) {
-                          if(err) {
-                              console.log("minioerr: " + err) // err should be null
-                          } else {
-                             console.log("Success", objInfo)
-                          }
-                        });
-                      } else {
-
-                        
-                        s3.putObject({
-                          Bucket: process.env.ROOT_BUCKET_NAME,
-                          Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
-                          Body: rdata,
-                          ContentType: contentType
-                        }, function (error, resp) {
-                            if (error) {
-                              console.log('error putting  pic' + error);
-                            } else {
-                              console.log('Successfully uploaded  pic with response: ' + resp);
-                            }
-                        });
-                      }
-                    })
-                      
-                    .catch(err => {console.log(err); res.send(err);});
-                    await sharp(data.Body)
-                    .resize({
-                      kernel: sharp.kernel.nearest,
-                      height: 512,
-                      width: 512,
-                      fit: 'contain'
-                    })
-                    .extend({
-                      top: 0,
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      background: { r: 0, g: 0, b: 0, alpha: 1 }
-                    })
-                    .toFormat(format)
-                    .toBuffer()
-                    .then(rdata => {
-                        if (minioClient) {
-                          minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename, rdata, function(err, objInfo) {
-                            if(err) {
-                                console.log("minioerr: " + err) // err should be null
-                            } else {
-                               console.log("Success", objInfo)
-                            }
-                          });
-                        } else {
-                          s3.putObject({
-                              Bucket: process.env.ROOT_BUCKET_NAME,
-                              Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
-                              Body: rdata,
-                              ContentType: contentType
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded  pic with response: ' + resp);
-                              }
-                          })
-                        }
-                      })
-                    .catch(err => {console.log(err); res.send(err);});
-                    await sharp(data.Body)
-                    .resize({
-                      kernel: sharp.kernel.nearest,
-                      height: 256,
-                      width: 256,
-                      fit: 'contain'
-                    })
-                    .extend({
-                      top: 0,
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      background: { r: 0, g: 0, b: 0, alpha: 1 }
-                    })
-                    .toFormat(format)
-                    .toBuffer()
-                    .then(rdata => {
-                        // let buf = Buffer.from(rdata);
-                        // let encodedData = rdata.toString('base64');
-                        if (minioClient) {
-                          minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename, rdata, function(err, objInfo) {
-                            if(err) {
-                                console.log("minioerr: " + err) // err should be null
-                            } else {
-                               console.log("Success", objInfo)
-                            }
-                          });
-                        } else {
-                          s3.putObject({
-                              Bucket: process.env.ROOT_BUCKET_NAME,
-                              Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
-                              Body: rdata,
-                              ContentType: contentType
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded  pic with response: ' + resp);
-                              }
-                          });
-                        }
-                      })
-                    .catch(err => {console.log(err); res.send(err);});
-                    await sharp(data.Body)
-                    .resize({
-                      kernel: sharp.kernel.nearest,
-                      height: 128,
-                      width: 128,
-                      fit: 'contain'
-                    })
-                    .extend({
-                      top: 0,
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      background: { r: 0, g: 0, b: 0, alpha: 1 }
-                    })
-                    .toFormat(format)
-                    .toBuffer()
-                    .then(rdata => {
-                        // let buf = Buffer.from(rdata);
-                        // let encodedData = rdata.toString('base64');
-                        if (minioClient) {
-                          minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename, rdata, function(err, objInfo) {
-                            if(err) {
-                                console.log("minioerr: " + err) // err should be null
-                            } else {
-                               console.log("Success", objInfo)
-                            }
-                          });
-                        } else {
-                          s3.putObject({
-                              Bucket: process.env.ROOT_BUCKET_NAME,
-                              Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
-                              Body: rdata,
-                              ContentType: contentType
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded  pic with response: ' + resp);
-                              }
-                          })
-                        }
-                      })
-                    .catch(err => {console.log(err); res.send(err);});
-                    console.log("pics have been mangled!");  
-                    res.send("resize successful!");
-                    
-                  } else { //if png, keep bg transparent
-                    console.log("format != jpg");
-                    await sharp(data.Body)
-                    .resize({
-                      kernel: sharp.kernel.nearest,
-                      height: 1024,
-                      width: 1024,
-                      fit: 'contain',
-                      background: { r: 0, g: 0, b: 0, alpha: 0 }
-                    })
-                    .toFormat(format)
-                    .toBuffer()
-                    .then(rdata => {
-                      if (minioClient) {
-                        minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, function(err, objInfo) {
-                          if(err) {
-                              console.log("minioerr: " + err) // err should be null
-                          } else {
-                             console.log("Success", objInfo)
-                          }
-                        });
-                      } else {
-                          s3.putObject({
-                            Bucket: process.env.ROOT_BUCKET_NAME,
-                            Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
-                            Body: rdata,
-                            ContentType: contentType
-                          }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded  pic with response: ' + resp);
-                              }
-                          })
-                        }
-                      })
-                    .catch(err => {console.log(err); res.send(err);});
-                    await sharp(data.Body)
-                    .resize({
-                      kernel: sharp.kernel.nearest,
-                      height: 512,
-                      width: 512,
-                      fit: 'contain',
-                      ackground: { r: 0, g: 0, b: 0, alpha: 0 }
-                    })
-                    .toFormat(format)
-                    .toBuffer()
-                    .then(rdata => {
-                      if (minioClient) {
-                        minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename, rdata, function(err, objInfo) {
-                          if(err) {
-                              console.log("minioerr: " + err) // err should be null
-                          } else {
-                             console.log("Success", objInfo)
-                          }
-                        });
-                      } else {
-                        s3.putObject({
-                            Bucket: process.env.ROOT_BUCKET_NAME,
-                            Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
-                            Body: rdata,
-                            ContentType: contentType
-                          }, function (error, resp) {
-                            if (error) {
-                              console.log('error putting  pic' + error);
-                            } else {
-                              console.log('Successfully uploaded  pic with response: ' + resp);
-                            }
-                        })
-                      }
-                    })
-                    .catch(err => {console.log(err); res.send(err);});
-                    await sharp(data.Body)
-                    .resize({
-                      kernel: sharp.kernel.nearest,
-                      height: 256,
-                      width: 256,
-                      fit: 'contain',
-                      background: { r: 0, g: 0, b: 0, alpha: 0 }
-                    })
-                    .toFormat(format)
-                    .toBuffer()
-                    .then(rdata => {
-                        // let buf = Buffer.from(rdata);
-                        // let encodedData = rdata.toString('base64');
-                        if (minioClient) {
-                          minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename, rdata, function(err, objInfo) {
-                            if(err) {
-                                console.log("minioerr: " + err) // err should be null
-                            } else {
-                               console.log("Success", objInfo)
-                            }
-                          });
-                        } else {
-                          s3.putObject({
-                              Bucket: process.env.ROOT_BUCKET_NAME,
-                              Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
-                              Body: rdata,
-                              ContentType: contentType
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded  pic with response: ' + resp);
-                              }
-                          })
-                        }
-                      })
-                    .catch(err => {console.log(err); res.send(err);});
-                    await sharp(data.Body)
-                    .resize({
-                      kernel: sharp.kernel.nearest,
-                      height: 128,
-                      width: 128,
-                      fit: 'contain',
-                      background: { r: 0, g: 0, b: 0, alpha: 0 }
-                    })
-                    .toFormat(format)
-                    .toBuffer()
-                    .then(rdata => {
-                        // let buf = Buffer.from(rdata);
-                        // let encodedData = rdata.toString('base64');
-                        if (minioClient) {
-                          minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename, rdata, function(err, objInfo) {
-                            if(err) {
-                                console.log("minioerr: " + err) // err should be null
-                            } else {
-                               console.log("Success", objInfo)
-                            }
-                          });
-                        } else {
-                          s3.putObject({
-                              Bucket: process.env.ROOT_BUCKET_NAME,
-                              Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
-                              Body: rdata,
-                              ContentType: contentType
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded  pic with response: ' + resp);
-                              }
-                          })
-                        }
-                      })
-                    .catch(err => {console.log(err); res.send(err);});
-                    console.log("pics have been mangled!");
-                    res.send("resize successful!");
-                  
+                });
+              })
+              .catch(err => {console.log(err); res.send(err);});              
+              await sharp(process.env.LOCAL_TEMP_FOLDER + image.filename)
+              .resize({
+                kernel: sharp.kernel.nearest,
+                height: 512,
+                width: 512,
+                fit: 'contain'
+              })
+              .extend({
+                top: 0,
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: { r: 0, g: 0, b: 0, alpha: 1 }
+              })
+              .toFormat(format)
+              .toBuffer()
+              .then(rdata => {
+                minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename, rdata, function(err, objInfo) {
+                  if(err) {
+                      console.log("minioerr: " + err) // err should be null
+                  } else {
+                      console.log("Success with standard pic", objInfo)
                   }
-              } else {
-                console.log("no source file found!");
-              }
-            })();//end async
+                });
+              })
+              .catch(err => {console.log(err); res.send(err);});
+              await sharp(process.env.LOCAL_TEMP_FOLDER + image.filename)
+              .resize({
+                kernel: sharp.kernel.nearest,
+                height: 256,
+                width: 256,
+                fit: 'contain'
+              })
+              .extend({
+                top: 0,
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: { r: 0, g: 0, b: 0, alpha: 1 }
+              })
+              .toFormat(format)
+              .toBuffer()
+              .then(rdata => {
+                minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename, rdata, function(err, objInfo) {
+                  if(err) {
+                      console.log("minioerr: " + err) // err should be null
+                  } else {
+                      console.log("Success with standard pic", objInfo)
+                  }
+                });
+              })
+              .catch(err => {console.log(err); res.send(err);});
+              await sharp(process.env.LOCAL_TEMP_FOLDER + image.filename)
+              .resize({
+                kernel: sharp.kernel.nearest,
+                height: 128,
+                width: 128,
+                fit: 'contain'
+              })
+              .extend({
+                top: 0,
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: { r: 0, g: 0, b: 0, alpha: 1 }
+              })
+              .toFormat(format)
+              .toBuffer()
+              .then(rdata => {
+                minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename, rdata, function(err, objInfo) {
+                  if(err) {
+                      console.log("minioerr: " + err) // err should be null
+                  } else {
+                      console.log("Success with standard pic", objInfo)
+                  }
+                });
+              })
+              .catch(err => {console.log(err); res.send(err);});
+              console.log("pics have been mangled!");  
+              res.send("resize successful!");
+              
+            } else { //if png, keep bg transparent
+              console.log("format != jpg");
+              await sharp(process.env.LOCAL_TEMP_FOLDER + image.filename)
+              .resize({
+                kernel: sharp.kernel.nearest,
+                height: 1024,
+                width: 1024,
+                fit: 'contain',
+                background: { r: 0, g: 0, b: 0, alpha: 0 }
+              })
+              .toFormat(format)
+              .toBuffer()
+              .then(rdata => {
+                minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, function(err, objInfo) {
+                  if(err) {
+                      console.log("minioerr: " + err) // err should be null
+                  } else {
+                      console.log("Success with standard pic", objInfo)
+                  }
+                });
+              })
+              .catch(err => {console.log(err); res.send(err);});
+              await sharp(process.env.LOCAL_TEMP_FOLDER + image.filename)
+              .resize({
+                kernel: sharp.kernel.nearest,
+                height: 512,
+                width: 512,
+                fit: 'contain',
+                ackground: { r: 0, g: 0, b: 0, alpha: 0 }
+              })
+              .toFormat(format)
+              .toBuffer()
+              .then(rdata => {
+                minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename, rdata, function(err, objInfo) {
+                  if(err) {
+                      console.log("minioerr: " + err) // err should be null
+                  } else {
+                      console.log("Success with standard pic", objInfo)
+                  }
+                });
+              })
+              .catch(err => {console.log(err); res.send(err);});
+              await sharp(process.env.LOCAL_TEMP_FOLDER + image.filename)
+              .resize({
+                kernel: sharp.kernel.nearest,
+                height: 256,
+                width: 256,
+                fit: 'contain',
+                background: { r: 0, g: 0, b: 0, alpha: 0 }
+              })
+              .toFormat(format)
+              .toBuffer()
+              .then(rdata => {
+                minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename, rdata, function(err, objInfo) {
+                  if(err) {
+                      console.log("minioerr: " + err) // err should be null
+                  } else {
+                      console.log("Success with standard pic", objInfo)
+                  }
+                });
+              })
+              .catch(err => {console.log(err); res.send(err);});
+              await sharp(process.env.LOCAL_TEMP_FOLDER + image.filename)
+              .resize({
+                kernel: sharp.kernel.nearest,
+                height: 128,
+                width: 128,
+                fit: 'contain',
+                background: { r: 0, g: 0, b: 0, alpha: 0 }
+              })
+              .toFormat(format)
+              .toBuffer()
+              .then(rdata => {
+                minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename, rdata, function(err, objInfo) {
+                  if(err) {
+                      console.log("minioerr: " + err) // err should be null
+                  } else {
+                      console.log("Success with standard pic", objInfo)
+                  }
+                });
+              })
+              .catch(err => {console.log(err); res.send(err);});
+              console.log("pics have been mangled!");
+              res.send("resize successful!");
+            }
+        } else { /////////////////--------- s3 mode below..
+            let data = await s3.getObject(params).promise();
+            if (format == 'jpg') {
+            await sharp(data.Body)
+            .resize({
+              kernel: sharp.kernel.nearest,
+              height: 1024,
+              width: 1024,
+              fit: 'contain'
+            })
+            .extend({
+              top: 0,
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: { r: 0, g: 0, b: 0, alpha: 1 }
+            })
+            .toFormat(format)
+            .toBuffer()
+            .then(rdata => {
+                s3.putObject({
+                  Bucket: process.env.ROOT_BUCKET_NAME,
+                  Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                  Body: rdata,
+                  ContentType: contentType
+                }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded  pic with response: ' + resp);
+                    }
+                })
+              // }
+            })
+            .catch(err => {console.log(err); res.send(err);});
 
-                // }
-            // });
-            // console.log("returning image item : " + JSON.stringify(image));
+            await sharp(data.Body)
+            .resize({
+              kernel: sharp.kernel.nearest,
+              height: 512,
+              width: 512,
+              fit: 'contain'
+            })
+            .extend({
+              top: 0,
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: { r: 0, g: 0, b: 0, alpha: 1 }
+            })
+            .toFormat(format)
+            .toBuffer()
+            .then(rdata => {
+                s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                    Body: rdata,
+                    ContentType: contentType
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded  pic with response: ' + resp);
+                    }
+                })
+              })
+            .catch(err => {console.log(err); res.send(err);});
+            await sharp(data.Body)
+            .resize({
+              kernel: sharp.kernel.nearest,
+              height: 256,
+              width: 256,
+              fit: 'contain'
+            })
+            .extend({
+              top: 0,
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: { r: 0, g: 0, b: 0, alpha: 1 }
+            })
+            .toFormat(format)
+            .toBuffer()
+            .then(rdata => {
+                // let buf = Buffer.from(rdata);
+                // let encodedData = rdata.toString('base64');
+                s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                    Body: rdata,
+                    ContentType: contentType
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded  pic with response: ' + resp);
+                    }
+                })
+              })
+            .catch(err => {console.log(err); res.send(err);});
+            await sharp(data.Body)
+            .resize({
+              kernel: sharp.kernel.nearest,
+              height: 128,
+              width: 128,
+              fit: 'contain'
+            })
+            .extend({
+              top: 0,
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: { r: 0, g: 0, b: 0, alpha: 1 }
+            })
+            .toFormat(format)
+            .toBuffer()
+            .then(rdata => {
+                s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                    Body: rdata,
+                    ContentType: contentType
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded  pic with response: ' + resp);
+                    }
+                })
+              })
+            .catch(err => {console.log(err); res.send(err);});
+            console.log("pics have been mangled!");  
+            res.send("resize successful!");
+            
+          } else { //if png, keep bg transparent
+            console.log("format != jpg");
+            await sharp(data.Body)
+            .resize({
+              kernel: sharp.kernel.nearest,
+              height: 1024,
+              width: 1024,
+              fit: 'contain',
+              background: { r: 0, g: 0, b: 0, alpha: 0 }
+            })
+            .toFormat(format)
+            .toBuffer()
+            .then(rdata => {
+                  s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
+                    Body: rdata,
+                    ContentType: contentType
+                  }, function (error, resp) {
+                      if (error) {
+                        console.log('error putting  pic' + error);
+                      } else {
+                        console.log('Successfully uploaded  pic with response: ' + resp);
+                      }
+                  })
+                })
+            .catch(err => {console.log(err); res.send(err);});
+            await sharp(data.Body)
+            .resize({
+              kernel: sharp.kernel.nearest,
+              height: 512,
+              width: 512,
+              fit: 'contain',
+              ackground: { r: 0, g: 0, b: 0, alpha: 0 }
+            })
+            .toFormat(format)
+            .toBuffer()
+            .then(rdata => {
+                s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + image.userID + "/pictures/" + image._id +".half."+image.filename,
+                    Body: rdata,
+                    ContentType: contentType
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded  pic with response: ' + resp);
+                    }
+                })
+              })
+            .catch(err => {console.log(err); res.send(err);});
+            await sharp(data.Body)
+            .resize({
+              kernel: sharp.kernel.nearest,
+              height: 256,
+              width: 256,
+              fit: 'contain',
+              background: { r: 0, g: 0, b: 0, alpha: 0 }
+            })
+            .toFormat(format)
+            .toBuffer()
+            .then(rdata => {
+                // let buf = Buffer.from(rdata);
+                // let encodedData = rdata.toString('base64');
+                s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + image.userID + "/pictures/" + image._id +".quarter."+image.filename,
+                    Body: rdata,
+                    ContentType: contentType
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded  pic with response: ' + resp);
+                    }
+                })
+              })
+            .catch(err => {console.log(err); res.send(err);});
+            await sharp(data.Body)
+            .resize({
+              kernel: sharp.kernel.nearest,
+              height: 128,
+              width: 128,
+              fit: 'contain',
+              background: { r: 0, g: 0, b: 0, alpha: 0 }
+            })
+            .toFormat(format)
+            .toBuffer()
+            .then(rdata => {
+                s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + image.userID + "/pictures/" + image._id +".thumb."+image.filename,
+                    Body: rdata,
+                    ContentType: contentType
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded  pic with response: ' + resp);
+                    }
+                })
+              })
+            .catch(err => {console.log(err); res.send(err);});
+            console.log("pics have been mangled!");
+            res.send("resize successful!");
+          
+            }
+          }
+        })();//end async
         }
-    });
-});
-
+      });
+  });
+      
 
 app.get('/resize_uploaded_picture_old/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //presumes pic has already been uploaded to production folder and db entry made
   console.log("tryna resize pic with key: " + req.params._id);
@@ -1527,15 +1582,6 @@ app.get('/resize_uploaded_picture_old/:_id', cors(corsOptions), requiredAuthenti
                 .toFormat(format)
                 .toBuffer()
                 .then(rdata => {
-                  // if (minioClient) {
-                  //   minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename, rdata, function(err, objInfo) {
-                  //     if(err) {
-                  //         console.log("minioerr: " + err) // err should be null
-                  //     } else {
-                  //        console.log("Success", objInfo)
-                  //     }
-                  //   });
-                  // } else {
                     s3.putObject({
                       Bucket: process.env.ROOT_BUCKET_NAME,
                       Key: "users/" + image.userID + "/pictures/" + image._id +".standard."+image.filename,
@@ -1550,8 +1596,8 @@ app.get('/resize_uploaded_picture_old/:_id', cors(corsOptions), requiredAuthenti
                     })
                   // }
                 })
-                  
                 .catch(err => {console.log(err); res.send(err);});
+
                 await sharp(data.Body)
                 .resize({
                   kernel: sharp.kernel.nearest,
@@ -2239,6 +2285,54 @@ function DownloadS3File (params, location) {
     s3Stream.pipe(fileStream);
   });
 }
+function DownloadMinioFile (bucket, key, location) {
+
+  return new Promise((resolve, reject) => { //return promise so can await below
+    const minioStream = minioClient.getObject(bucket, key);
+    const fileStream = fs.createWriteStream(location);
+    let buffer = []
+    let size = 0;
+    minioClient.getObject(bucket, key, function(err, dataStream) {
+      if (err) {
+        // return 
+        console.log(err);
+        
+      }
+      dataStream.on('data', function(chunk) {
+        size += chunk.length
+        buffer.push(chunk);
+        // chunk.pipe(fileStream);
+      })
+      dataStream.on('end', function() {
+        console.log('End. Total size = ' + size)
+        // return data
+        fs.writeFile(location, Buffer.concat(buffer), err => {
+          if (err) {
+            console.error(err);
+          }
+          console.log("file written to locaiton :" + location);
+          resolve(location);
+      });
+        
+      })
+      dataStream.on('error', function(err) {
+        console.log(err);
+        reject(err);
+      })
+    });
+    // // const fileStream = fs.createWriteStream(location);
+    // // minioStream.on('error', reject);
+    // fileStream.on('error', reject);
+    // minioStream.pipe(fileStream);
+    // // s3Stream.on('progress', )
+    // fileStream.on('close', () => { 
+    //   resolve(location);
+    //   console.log("filestream closed writiing to " + location);
+    // });
+
+  });
+}
+
 
 
 app.get('/process_video_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {

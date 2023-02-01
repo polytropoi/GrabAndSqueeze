@@ -2071,7 +2071,7 @@ app.get('/process_audio_download_old/:_id', cors(corsOptions), requiredAuthentic
             ffmpeg(fs.createReadStream(downloadpath + filename))
             .setFfmpegPath(ffmpeg_static)
             
-            .output('tmp.png')            
+            .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.png')            
             .complexFilter(
               [
                   '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
@@ -2080,12 +2080,12 @@ app.get('/process_audio_download_old/:_id', cors(corsOptions), requiredAuthentic
             .outputOptions(['-vframes 1'])
             // .format('png')
 
-            .output('tmp.ogg')
+            .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.ogg')
             .audioBitrate(192)
             .audioCodec('libvorbis')
             .format('ogg')
 
-            .output('tmp.mp3')
+            .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.mp3')
             .audioBitrate(192)
             .audioCodec('libmp3lame')
             .format('mp3')
@@ -2095,7 +2095,7 @@ app.get('/process_audio_download_old/:_id', cors(corsOptions), requiredAuthentic
                 s3.putObject({
                   Bucket: process.env.ROOT_BUCKET_NAME,
                   Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg",
-                  Body: fs.readFileSync('tmp.ogg'),
+                  Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.ogg'),
                   ContentType: 'audio/ogg'
                   }, function (error, resp) {
                     if (error) {
@@ -2107,7 +2107,7 @@ app.get('/process_audio_download_old/:_id', cors(corsOptions), requiredAuthentic
                 s3.putObject({
                   Bucket: process.env.ROOT_BUCKET_NAME,
                   Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3",
-                  Body: fs.readFileSync('tmp.mp3'),
+                  Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.mp3'),
                   ContentType: 'audio/mp3'
                   }, function (error, resp) {
                     if (error) {
@@ -2119,7 +2119,7 @@ app.get('/process_audio_download_old/:_id', cors(corsOptions), requiredAuthentic
                 s3.putObject({
                   Bucket: process.env.ROOT_BUCKET_NAME,
                   Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png",
-                  Body: fs.readFileSync('tmp.png'),
+                  Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.png'),
                   ContentType: 'image/png'
                 }, function (error, resp) {
                   if (error) {
@@ -2162,7 +2162,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
       var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
 
           (async () => {
-
+            let hasSentResponse = false;
             if (minioClient) {
               // let downloadpath = process.env.LOCAL_TEMP_FOLDER;
               // let filename = audio_item._id +"."+ audio_item.filename;
@@ -2175,7 +2175,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
               ffmpeg(fs.createReadStream(savedLocation))
               .setFfmpegPath(ffmpeg_static)
               
-              .output('tmp.png')            
+              .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.png')            
               .complexFilter(
                 [
                     '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
@@ -2184,19 +2184,19 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
               .outputOptions(['-vframes 1'])
               // .format('png')
 
-              .output('tmp.ogg')
+              .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.ogg')
               .audioBitrate(192)
               .audioCodec('libvorbis')
               .format('ogg')
 
-              .output('tmp.mp3')
+              .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.mp3')
               .audioBitrate(192)
               .audioCodec('libmp3lame')
               .format('mp3')
 
               .on('end', () => {
                   console.log("done squeezin audio");
-                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg", fs.readFileSync('tmp.ogg'), function(err, objInfo) {
+                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg", fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.ogg'), function(err, objInfo) {
                     if(err) {
                         console.log("minioerr: " + err) // err should be null
                     } else {
@@ -2204,7 +2204,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
                     }
                   });
 
-                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3", fs.readFileSync('tmp.mp3'), function(err, objInfo) {
+                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3", fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.mp3'), function(err, objInfo) {
                     if(err) {
                         console.log("minioerr: " + err) // err should be null
                     } else {
@@ -2212,7 +2212,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
                     }
                   });
 
-                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png", fs.readFileSync('tmp.png'), function(err, objInfo) {
+                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png", fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.png'), function(err, objInfo) {
                     if(err) {
                         console.log("minioerr: " + err) // err should be null
                     } else {
@@ -2227,10 +2227,10 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
               })
               .on('progress', function(info) {
                   console.log('progress ' + JSON.stringify(info));
-                  // if (!hasSentResponse) {
-                  //   hasSentResponse = true;
-                  //   res.send("processing!");
-                  // }
+                  if (!hasSentResponse) {
+                    hasSentResponse = true;
+                    res.send("processing!");
+                  }
               })
               .run();
 
@@ -2240,7 +2240,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
                   console.log("dint find nothin at s3 like that...");
                 } else {
                   console.log("found original, mtryna download " + audio_item.filename);
-                  let hasSentResponse = false;
+                  hasSentResponse = false;
                 }
               });
               // var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
@@ -2261,7 +2261,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
               ffmpeg(fs.createReadStream(downloadpath + filename))
               .setFfmpegPath(ffmpeg_static)
               
-              .output('tmp.png')            
+              .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.png')            
               .complexFilter(
                 [
                     '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
@@ -2270,12 +2270,12 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
               .outputOptions(['-vframes 1'])
               // .format('png')
 
-              .output('tmp.ogg')
+              .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.ogg')
               .audioBitrate(192)
               .audioCodec('libvorbis')
               .format('ogg')
 
-              .output('tmp.mp3')
+              .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.mp3')
               .audioBitrate(192)
               .audioCodec('libmp3lame')
               .format('mp3')
@@ -2285,7 +2285,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
                   s3.putObject({
                     Bucket: process.env.ROOT_BUCKET_NAME,
                     Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg",
-                    Body: fs.readFileSync('tmp.ogg'),
+                    Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.ogg'),
                     ContentType: 'audio/ogg'
                     }, function (error, resp) {
                       if (error) {
@@ -2297,7 +2297,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
                   s3.putObject({
                     Bucket: process.env.ROOT_BUCKET_NAME,
                     Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3",
-                    Body: fs.readFileSync('tmp.mp3'),
+                    Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.mp3'),
                     ContentType: 'audio/mp3'
                     }, function (error, resp) {
                       if (error) {
@@ -2309,7 +2309,7 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
                   s3.putObject({
                     Bucket: process.env.ROOT_BUCKET_NAME,
                     Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png",
-                    Body: fs.readFileSync('tmp.png'),
+                    Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.png'),
                     ContentType: 'image/png'
                   }, function (error, resp) {
                     if (error) {
@@ -2360,7 +2360,7 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
             
             .setFfmpegPath(ffmpeg_static)
             
-            .output('tmp.png')            
+            .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.png')            
             .complexFilter(
               [
                   '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
@@ -2369,13 +2369,13 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
             .outputOptions(['-vframes 1'])
             // .format('png')
 
-            .output('tmp.ogg')
+            .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.ogg')
             //.audioBitrate(256)
             .audioQuality(1)
             .audioCodec('libvorbis')
             .format('ogg')
 
-            .output('tmp.mp3')
+            .output(process.env.LOCAL_TEMP_FOLDER + 'tmp.mp3')
             // .audioBitrate(256)
             .audioQuality(1)
             .audioCodec('libmp3lame')
@@ -2386,7 +2386,7 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
                 s3.putObject({
                   Bucket: process.env.ROOT_BUCKET_NAME,
                   Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg",
-                  Body: fs.readFileSync('tmp.ogg'),
+                  Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.ogg'),
                   ContentType: 'audio/ogg'
                 }, function (error, resp) {
                   if (error) {
@@ -2398,7 +2398,7 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
                 s3.putObject({
                   Bucket: process.env.ROOT_BUCKET_NAME,
                   Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3",
-                  Body: fs.readFileSync('tmp.mp3'),
+                  Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.mp3'),
                   ContentType: 'audio/mp3'
                 }, function (error, resp) {
                   if (error) {
@@ -2410,7 +2410,7 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
                 s3.putObject({
                   Bucket: process.env.ROOT_BUCKET_NAME,
                   Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png",
-                  Body: fs.readFileSync('tmp.png'),
+                  Body: fs.readFileSync(process.env.LOCAL_TEMP_FOLDER + 'tmp.png'),
                   ContentType: 'image/png'
                 }, function (error, resp) {
                   if (error) {

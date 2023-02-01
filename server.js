@@ -2035,7 +2035,7 @@ app.get("/update_s3_videopaths/:_id", function (req,res) {
   }
 });
 
-app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //download before processing, instead of streaming it
+app.get('/process_audio_download_old/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //download before processing, instead of streaming it
   console.log("tryna process audio : " + req.params._id);
   var o_id = ObjectID(req.params._id);
   db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
@@ -2148,6 +2148,195 @@ app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthenticatio
     });
 });
 
+
+app.get('/process_audio_download/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //download before processing, instead of streaming it// combined minio/s3 version
+  console.log("tryna process audio : " + req.params._id);
+  var o_id = ObjectID(req.params._id);
+  db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
+    if (err || !audio_item) {
+        console.log("error getting audio item: " + err);
+        callback("no audio in db");
+        res.send("no audio in db");
+    } else {
+      console.log(JSON.stringify(audio_item));
+      var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
+
+          (async () => {
+
+            if (minioClient) {
+              // let downloadpath = process.env.LOCAL_TEMP_FOLDER;
+              // let filename = audio_item._id +"."+ audio_item.filename;
+              // if (!fs.existsSync(downloadpath)){
+              //   console.log("creating directory " + downloadpath); 
+              // await fs.promises.mkdir(downloadpath).then().catch({if (err){return}});
+              let key = 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename;
+              let savedLocation = process.env.LOCAL_TEMP_FOLDER + audio_item.filename;
+              await DownloadMinioFile(process.env.ROOT_BUCKET_NAME, key, savedLocation);
+              ffmpeg(fs.createReadStream(savedLocation))
+              .setFfmpegPath(ffmpeg_static)
+              
+              .output('tmp.png')            
+              .complexFilter(
+                [
+                    '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
+                ]
+              )
+              .outputOptions(['-vframes 1'])
+              // .format('png')
+
+              .output('tmp.ogg')
+              .audioBitrate(192)
+              .audioCodec('libvorbis')
+              .format('ogg')
+
+              .output('tmp.mp3')
+              .audioBitrate(192)
+              .audioCodec('libmp3lame')
+              .format('mp3')
+
+              .on('end', () => {
+                  console.log("done squeezin audio");
+                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg", fs.readFileSync('tmp.ogg'), function(err, objInfo) {
+                    if(err) {
+                        console.log("minioerr: " + err) // err should be null
+                    } else {
+                        console.log("Success with ogg version", objInfo)
+                    }
+                  });
+
+                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3", fs.readFileSync('tmp.mp3'), function(err, objInfo) {
+                    if(err) {
+                        console.log("minioerr: " + err) // err should be null
+                    } else {
+                        console.log("Success with mp3 version", objInfo)
+                    }
+                  });
+
+                  minioClient.putObject(process.env.ROOT_BUCKET_NAME, "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png", fs.readFileSync('tmp.png'), function(err, objInfo) {
+                    if(err) {
+                        console.log("minioerr: " + err) // err should be null
+                    } else {
+                        console.log("Success with waveform png", objInfo)
+                    }
+                  });
+
+              })
+              .on('error', err => {
+                  console.error(err);
+                  res.send("error! " + err);
+              })
+              .on('progress', function(info) {
+                  console.log('progress ' + JSON.stringify(info));
+                  // if (!hasSentResponse) {
+                  //   hasSentResponse = true;
+                  //   res.send("processing!");
+                  // }
+              })
+              .run();
+
+            } else { // !minio
+              s3.headObject(params, function(err, data) { //where it should be
+                if (err) { //object isn't in proper folder, copy it over
+                  console.log("dint find nothin at s3 like that...");
+                } else {
+                  console.log("found original, mtryna download " + audio_item.filename);
+                  let hasSentResponse = false;
+                }
+              });
+              // var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/originals/' + audio_item._id + ".original." + audio_item.filename};
+              let downloadpath = process.env.LOCAL_TEMP_FOLDER + audio_item._id;
+              let filename = audio_item._id +"."+ audio_item.filename;
+              // if (!fs.existsSync(downloadpath)){
+              //   console.log("creating directory " + downloadpath); 
+              await fs.promises.mkdir(downloadpath).then().catch({if (err){return}});
+              // }
+              // let savepath = downloadpath + 'output.m3u8';
+              // console.log("tryna save audio to " + savepath);
+                  // await fs.promises.mkdir(downloadpath).then().catch({if (err){return}});
+                  // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
+                  // await fs.promises.writeFile(downloadpath + filename, data).then().catch({if (err){return}});
+              // let data = await s3.getObject(params).createReadStream();
+              await DownloadS3File(params, downloadpath + filename).then().catch({if (err){return}});
+              console.log("file downloaded " + downloadpath + filename);
+              ffmpeg(fs.createReadStream(downloadpath + filename))
+              .setFfmpegPath(ffmpeg_static)
+              
+              .output('tmp.png')            
+              .complexFilter(
+                [
+                    '[0:a]aformat=channel_layouts=mono,showwavespic=s=600x200'
+                ]
+              )
+              .outputOptions(['-vframes 1'])
+              // .format('png')
+
+              .output('tmp.ogg')
+              .audioBitrate(192)
+              .audioCodec('libvorbis')
+              .format('ogg')
+
+              .output('tmp.mp3')
+              .audioBitrate(192)
+              .audioCodec('libmp3lame')
+              .format('mp3')
+
+              .on('end', () => {
+                  console.log("done squeezin audio");
+                  s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".ogg",
+                    Body: fs.readFileSync('tmp.ogg'),
+                    ContentType: 'audio/ogg'
+                    }, function (error, resp) {
+                      if (error) {
+                        console.log('error putting  pic' + error);
+                      } else {
+                        console.log('Successfully uploaded  ogg with response: ' + JSON.stringify(resp));
+                      }
+                  });
+                  s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".mp3",
+                    Body: fs.readFileSync('tmp.mp3'),
+                    ContentType: 'audio/mp3'
+                    }, function (error, resp) {
+                      if (error) {
+                        console.log('error putting  pic' + error);
+                      } else {
+                        console.log('Successfully uploaded mp3 with response: ' + JSON.stringify(resp));
+                      }
+                  });
+                  s3.putObject({
+                    Bucket: process.env.ROOT_BUCKET_NAME,
+                    Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"."+path.parse(audio_item.filename).name + ".png",
+                    Body: fs.readFileSync('tmp.png'),
+                    ContentType: 'image/png'
+                  }, function (error, resp) {
+                    if (error) {
+                      console.log('error putting  pic' + error);
+                    } else {
+                      console.log('Successfully uploaded png with response: ' + JSON.stringify(resp));
+                    }
+                });
+              })
+              .on('error', err => {
+                  console.error(err);
+                  res.send("error! " + err);
+              })
+              .on('progress', function(info) {
+                  console.log('progress ' + JSON.stringify(info));
+                  if (!hasSentResponse) {
+                    hasSentResponse = true;
+                    res.send("processing!");
+                  }
+              })
+              .run();
+          } //!minio close
+      })(); //async close
+    }
+    });
+});
+
 app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, function (req, res) { //deprecated for download version above, stream unstable for large files
   console.log("tryna process audio : " + req.params._id);
   var o_id = ObjectID(req.params._id);
@@ -2249,22 +2438,8 @@ app.get('/process_audio/:_id', cors(corsOptions), requiredAuthentication, functi
     }
     });
 });
-const downloadFromS3 = async (params, location) => {
-  // const params = {
-  //     Bucket: process.env.ROOT_BUCKET_NAME,
-  //     Key: key,
-  // }
 
-  // const { Body } = await s3.getObject(params).promise()
-  // await fs.writeFile(location, Body);
 
-  // return true
-  return s3.getObject(params, (err) => {
-    if (err) {
-      // handle errors
-    }
-  }).promise();
-}
 function DownloadS3File (params, location) {
 
   return new Promise((resolve, reject) => { //return promise so can await below

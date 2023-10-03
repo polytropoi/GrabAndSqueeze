@@ -2509,6 +2509,141 @@ function DownloadMinioFile (bucket, key, location) {
 }
 
 
+  function ProcessLocalVideoHLS(fullpath) {
+
+      (async () => {
+        var ts = Math.round(Date.now() / 1000);
+                // let downloadpath = ""; //set local folder
+                
+                // let filename = ""; // set local filename (*.mp4)
+
+                
+                // if (!fs.existsSync(downloadpath)){
+                //     // fs.mkdirSync(downloadpath);
+                //     console.log(downloadpath  + " filepath doesn't exist!");
+                // }
+                let savepath = downloadpath + 'output.m3u8';
+                console.log("tryna save hls to " + savepath);
+
+            // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
+            // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
+            // let data = await s3.getObject(params).createReadStream();
+            // await DownloadS3File(params, downloadpath + filename);
+            
+            //await DownloadS3File(params, downloadpath + filename).then().catch({if (err){return}});
+            
+            ffmpeg(fullpath)
+            .setFfmpegPath(ffmpeg_static)
+            
+            // var proc = ffmpeg('rtmp://path/to/live/stream', { timeout: 432000 })
+            .output(savepath)
+            .outputOptions([
+              // '-codec: copy',
+              '-hls_time 5',
+              '-hls_list_size 0',
+              '-hls_playlist_type vod',
+              // '-hls_base_url http://localhost:8080/',
+              '-hls_segment_filename '+ ts +'%03d.ts'
+            ])
+            // set video bitrate
+            .videoBitrate(2500)
+            // set h264 preset
+            // .addOption('preset','superfast')
+            // set target codec
+            .videoCodec('libx264')
+            // set audio bitrate
+            // .audioCodec('libfdk_aac')
+            .audioBitrate('128k')
+            // set audio codec
+            // .audioCodec('libmp3lame')
+            // set number of audio channels
+            .audioChannels(2)
+            .withSize('4096x2048')
+            // set hls segments time
+            // .addOption('-hls_time', 10)
+            // // include all the segments in the list
+            // .addOption('-hls_list_size',0)
+            // setup event handlers
+            .on('end', () => {
+                console.log("done squeezin video");
+                try {
+                  // fs.unlinkSync(downloadpath + filename);
+                  console.log("not deleting original file");
+                  //file removed
+                } catch(err) {
+                  console.error(err)
+                }
+
+                fs.readdir(downloadpath, (err, files) => {
+                  if (err != null) {
+                    console.log("error reading directory " + err);
+                  } else {
+
+                    db.video_items.save({
+                          userID : req.session.user._id.toString(),
+                          username : req.session.user.userName,
+                          title : ts + "." + filename,
+                          filename : filename,
+                          item_type : 'video',
+                          tags: [],
+                          item_status: "private",
+                          otimestamp : ts,
+                          ofilesize : size},
+                      function (err, video_item) {
+                          if ( err || !video_item ) {
+                              console.log('video not saved..');
+                              callback (err);
+                          } else {
+                            files.forEach(file => {
+                              console.log(file);
+                              if (path.extname(file) == '.ts') {
+                                s3.putObject({
+                                  Bucket: process.env.ROOT_BUCKET_NAME,
+                                  Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
+                                  Body: fs.readFileSync(downloadpath + file),
+                                  ContentType: 'video/MP2T'
+                                  }, function (error, resp) {
+                                    if (error) {
+                                      console.log('error putting  pic' + error);
+                                    } else {
+                                      console.log('Successfully uploaded ts file with response: ' + JSON.stringify(resp));
+                                    }
+                                });
+                              } else if (path.extname(file) == '.m3u8') {
+                                s3.putObject({
+                                  Bucket: process.env.ROOT_BUCKET_NAME,
+                                  Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
+                                  Body: fs.readFileSync(downloadpath + file),
+                                  ContentType: 'application/x-mpegURL'
+                                  }, function (error, resp) {
+                                    if (error) {
+                                      console.log('error putting  pic' + error);
+                                    } else {
+                                      console.log('Successfully uploaded m3u8 response: ' + JSON.stringify(resp));
+                                    }
+                                });
+                            }
+                          });
+
+                          }
+                    });
+                  }
+                });
+
+            })
+            .on('error', err => {
+                console.error("err: " + err);
+                // res.send("error! " + err);
+            })
+            .on('progress', function(info) {
+                console.log('progress ' + JSON.stringify(info));
+
+            })
+            .run();
+      
+      })(); //end async  
+  }
+
 app.get('/process_video_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
   console.log("tryna process video : " + req.params._id);
   var o_id = ObjectID(req.params._id);
@@ -2788,284 +2923,286 @@ app.get('/process_video_hls/:_id', cors(corsOptions), requiredAuthentication, fu
 });
 
 
-app.get('/process_video_hls_old/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
-  console.log("tryna process video : " + req.params._id);
-  var o_id = ObjectID(req.params._id);
-  db.video_items.findOne({"_id": o_id}, function(err, video_item) {
-    if (err || !video_item) {
-        console.log("error getting image item: " + err);
-        callback("no image in db");
-        res.send("no image in db");
-    } else {
-      console.log(JSON.stringify(video_item));
+// app.get('/process_video_hls_old/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
+//   console.log("tryna process video : " + req.params._id);
+//   var o_id = ObjectID(req.params._id);
+//   db.video_items.findOne({"_id": o_id}, function(err, video_item) {
+//     if (err || !video_item) {
+//         console.log("error getting image item: " + err);
+//         callback("no image in db");
+//         res.send("no image in db");
+//     } else {
+//       console.log(JSON.stringify(video_item));
       
-      s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video_item.userID + '/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename}, function(err, data) { //where it should be
-        if (err) { 
-          console.log("dint find no file at s3 like " + 'users/' + video_item.userID + '/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename);
-        } else {
-          console.log("found original " + process.env.ROOT_BUCKET_NAME + 'users/' + video_item.userID +'/video/' + video_item._id + "/" + video_item._id +"."+video_item.filename);
-          let hasSentResponse = false;
-          (async () => {
-            var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video_item.userID +'/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename};
-            let downloadpath = '/Volumes/STUMP_FAT_B/stump/video/'+ video_item._id+'/';
-            let filename = video_item._id +"."+ video_item.filename;
-              if (!fs.existsSync(downloadpath)){
-                fs.mkdirSync(downloadpath);
-            }
-            let savepath = downloadpath + 'output.m3u8';
-            console.log("tryna save hls to " + savepath);
-            // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
-            // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
-            // let data = await s3.getObject(params).createReadStream();
-            await DownloadS3File(params, downloadpath + filename);
+//       s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video_item.userID + '/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename}, function(err, data) { //where it should be
+//         if (err) { 
+//           console.log("dint find no file at s3 like " + 'users/' + video_item.userID + '/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename);
+//         } else {
+//           console.log("found original " + process.env.ROOT_BUCKET_NAME + 'users/' + video_item.userID +'/video/' + video_item._id + "/" + video_item._id +"."+video_item.filename);
+//           let hasSentResponse = false;
+//           (async () => {
+//             var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + video_item.userID +'/video/' + video_item._id + "/" + video_item._id +"."+ video_item.filename};
+//             let downloadpath = '/Volumes/STUMP_FAT_B/stump/video/'+ video_item._id+'/';
+//             let filename = video_item._id +"."+ video_item.filename;
+//               if (!fs.existsSync(downloadpath)){
+//                 fs.mkdirSync(downloadpath);
+//             }
+//             let savepath = downloadpath + 'output.m3u8';
+//             console.log("tryna save hls to " + savepath);
+//             // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
+//             // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
+//             // let data = await s3.getObject(params).createReadStream();
+//             await DownloadS3File(params, downloadpath + filename);
 
-            ffmpeg(downloadpath + filename)
-            .setFfmpegPath(ffmpeg_static)
+//             ffmpeg(downloadpath + filename)
+//             .setFfmpegPath(ffmpeg_static)
             
-            // var proc = ffmpeg('rtmp://path/to/live/stream', { timeout: 432000 })
-            .output(savepath)
-            .outputOptions([
-              // '-codec: copy',
-              '-hls_time 5',
-              '-hls_list_size 0',
-              '-hls_playlist_type vod',
-              // '-hls_base_url http://localhost:8080/',
-              '-hls_segment_filename '+ downloadpath +'%03d.ts'
-            ])
-            // set video bitrate
-            .videoBitrate(1000)
-            // set h264 preset
-            // .addOption('preset','superfast')
-            // set target codec
-            .videoCodec('libx264')
-            // set audio bitrate
-            // .audioCodec('libfdk_aac')
-            .audioBitrate('128k')
-            // set audio codec
-            // .audioCodec('libmp3lame')
-            // set number of audio channels
-            .audioChannels(2)
-            .withSize('720x480')
-            // set hls segments time
-            // .addOption('-hls_time', 10)
-            // // include all the segments in the list
-            // .addOption('-hls_list_size',0)
-            // setup event handlers
-            .on('end', () => {
-                console.log("done squeezin video");
-                try {
-                  fs.unlinkSync(downloadpath + filename);
-                  console.log("deleting original file");
-                  //file removed
-                } catch(err) {
-                  console.error(err)
-                }
-                fs.readdir(downloadpath, (err, files) => {
-                  if (err != null) {
-                    console.log("error reading directory " + err);
-                  } else {
-                    files.forEach(file => {
-                        console.log(file);
-                        if (path.extname(file) == '.ts') {
-                          s3.putObject({
-                            Bucket: process.env.ROOT_BUCKET_NAME,
-                            Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
-                            Body: fs.readFileSync(downloadpath + file),
-                            ContentType: 'video/MP2T'
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded ts file with response: ' + JSON.stringify(resp));
-                              }
-                          });
-                        } else if (path.extname(file) == '.m3u8') {
-                          s3.putObject({
-                            Bucket: process.env.ROOT_BUCKET_NAME,
-                            Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
-                            Body: fs.readFileSync(downloadpath + file),
-                            ContentType: 'application/x-mpegURL'
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded m3u8 response: ' + JSON.stringify(resp));
-                              }
-                          });
-                      }
-                    });
-                  }
-                });
-              //   s3.putObject({
-              //     Bucket: process.env.ROOT_BUCKET_NAME,
-              //     Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + video_item._id +"."+path.parse(video_item.filename).name + ".ogg",
-              //     Body: fs.readFileSync('tmp.m3u8'),
-              //     ContentType: 'application/x-mpegURL'
-              //   }, function (error, resp) {
-              //     if (error) {
-              //       console.log('error putting  pic' + error);
-              //     } else {
-              //       console.log('Successfully uploaded  video with response: ' + JSON.stringify(resp));
-              //     }
-              // });
-            })
-            .on('error', err => {
-                console.error("err: " + err);
-                res.send("error! " + err);
-            })
-            .on('progress', function(info) {
-                console.log('progress ' + JSON.stringify(info));
-                if (!hasSentResponse) {
-                  hasSentResponse = true;
-                  res.send("processing");
-                }
-            })
-            .run();
-        })();
-        }
-      });
-    }
-    });
-});
+//             // var proc = ffmpeg('rtmp://path/to/live/stream', { timeout: 432000 })
+//             .output(savepath)
+//             .outputOptions([
+//               // '-codec: copy',
+//               '-hls_time 5',
+//               '-hls_list_size 0',
+//               '-hls_playlist_type vod',
+//               // '-hls_base_url http://localhost:8080/',
+//               '-hls_segment_filename '+ downloadpath +'%03d.ts'
+//             ])
+//             // set video bitrate
+//             .videoBitrate(1000)
+//             // set h264 preset
+//             // .addOption('preset','superfast')
+//             // set target codec
+//             .videoCodec('libx264')
+//             // set audio bitrate
+//             // .audioCodec('libfdk_aac')
+//             .audioBitrate('128k')
+//             // set audio codec
+//             // .audioCodec('libmp3lame')
+//             // set number of audio channels
+//             .audioChannels(2)
+//             .withSize('720x480')
+//             // set hls segments time
+//             // .addOption('-hls_time', 10)
+//             // // include all the segments in the list
+//             // .addOption('-hls_list_size',0)
+//             // setup event handlers
+//             .on('end', () => {
+//                 console.log("done squeezin video");
+//                 try {
+//                   fs.unlinkSync(downloadpath + filename);
+//                   console.log("deleting original file");
+//                   //file removed
+//                 } catch(err) {
+//                   console.error(err)
+//                 }
+//                 fs.readdir(downloadpath, (err, files) => {
+//                   if (err != null) {
+//                     console.log("error reading directory " + err);
+//                   } else {
+//                     files.forEach(file => {
+//                         console.log(file);
+//                         if (path.extname(file) == '.ts') {
+//                           s3.putObject({
+//                             Bucket: process.env.ROOT_BUCKET_NAME,
+//                             Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
+//                             Body: fs.readFileSync(downloadpath + file),
+//                             ContentType: 'video/MP2T'
+//                             }, function (error, resp) {
+//                               if (error) {
+//                                 console.log('error putting  pic' + error);
+//                               } else {
+//                                 console.log('Successfully uploaded ts file with response: ' + JSON.stringify(resp));
+//                               }
+//                           });
+//                         } else if (path.extname(file) == '.m3u8') {
+//                           s3.putObject({
+//                             Bucket: process.env.ROOT_BUCKET_NAME,
+//                             Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
+//                             Body: fs.readFileSync(downloadpath + file),
+//                             ContentType: 'application/x-mpegURL'
+//                             }, function (error, resp) {
+//                               if (error) {
+//                                 console.log('error putting  pic' + error);
+//                               } else {
+//                                 console.log('Successfully uploaded m3u8 response: ' + JSON.stringify(resp));
+//                               }
+//                           });
+//                       }
+//                     });
+//                   }
+//                 });
+//               //   s3.putObject({
+//               //     Bucket: process.env.ROOT_BUCKET_NAME,
+//               //     Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + video_item._id +"."+path.parse(video_item.filename).name + ".ogg",
+//               //     Body: fs.readFileSync('tmp.m3u8'),
+//               //     ContentType: 'application/x-mpegURL'
+//               //   }, function (error, resp) {
+//               //     if (error) {
+//               //       console.log('error putting  pic' + error);
+//               //     } else {
+//               //       console.log('Successfully uploaded  video with response: ' + JSON.stringify(resp));
+//               //     }
+//               // });
+//             })
+//             .on('error', err => {
+//                 console.error("err: " + err);
+//                 res.send("error! " + err);
+//             })
+//             .on('progress', function(info) {
+//                 console.log('progress ' + JSON.stringify(info));
+//                 if (!hasSentResponse) {
+//                   hasSentResponse = true;
+//                   res.send("processing");
+//                 }
+//             })
+//             .run();
+//         })();
+//         }
+//       });
+//     }
+//     });
+// });
 
-app.get('/process_audio_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
-  console.log("tryna process video : " + req.params._id);
-  var o_id = ObjectID(req.params._id);
-  db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
-    if (err || !audio_item) {
-        console.log("error getting image item: " + err);
-        callback("no image in db");
-        res.send("no image in db");
-    } else {
-      console.log(JSON.stringify(audio_item));
-      s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename}, function(err, data) { //where it should be
-        if (err) { 
-          console.log("dint find no file at s3 like " + 'users/' + audio_item.userID + '/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename);
-        } else {
-          console.log("found original " + process.env.ROOT_BUCKET_NAME + 'users/' + audio_item.userID +'/audio/' + audio_item._id + "/" + audio_item._id +"."+audio_item.filename);
-          let hasSentResponse = false;
-          (async () => {
-            var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID +'/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename};
-            let downloadpath = '/Volumes/SM_FAT2/grabandsqueeze/audio/'+ audio_item._id+'/';
-            let filename = audio_item._id +"."+ audio_item.filename;
-            if (!fs.existsSync(downloadpath)){
-              fs.mkdirSync(downloadpath);
-          }
-            let savepath = downloadpath + 'output.m3u8';
-            console.log("tryna save hls to " + savepath);
-            // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
-            // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
-            // let data = await s3.getObject(params).createReadStream();
-            await DownloadS3File(params, downloadpath + filename);
+// app.get('/process_audio_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
+//   console.log("tryna process video : " + req.params._id);
+//   var o_id = ObjectID(req.params._id);
+//   db.audio_items.findOne({"_id": o_id}, function(err, audio_item) {
+//     if (err || !audio_item) {
+//         console.log("error getting image item: " + err);
+//         callback("no image in db");
+//         res.send("no image in db");
+//     } else {
+//       console.log(JSON.stringify(audio_item));
+//       s3.headObject({Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID + '/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename}, function(err, data) { //where it should be
+//         if (err) { 
+//           console.log("dint find no file at s3 like " + 'users/' + audio_item.userID + '/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename);
+//         } else {
+//           console.log("found original " + process.env.ROOT_BUCKET_NAME + 'users/' + audio_item.userID +'/audio/' + audio_item._id + "/" + audio_item._id +"."+audio_item.filename);
+//           let hasSentResponse = false;
+//           (async () => {
+//             var params = {Bucket: process.env.ROOT_BUCKET_NAME, Key: 'users/' + audio_item.userID +'/audio/' + audio_item._id + "/" + audio_item._id +"."+ audio_item.filename};
+//             let downloadpath = '/Volumes/SM_FAT2/grabandsqueeze/audio/'+ audio_item._id+'/';
+//             let filename = audio_item._id +"."+ audio_item.filename;
+//             if (!fs.existsSync(downloadpath)){
+//               fs.mkdirSync(downloadpath);
+//           }
+//             let savepath = downloadpath + 'output.m3u8';
+//             console.log("tryna save hls to " + savepath);
+//             // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
+//             // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
+//             // let data = await s3.getObject(params).createReadStream();
+//             await DownloadS3File(params, downloadpath + filename);
 
-            ffmpeg(downloadpath + filename)
-            .setFfmpegPath(ffmpeg_static)
+//             ffmpeg(downloadpath + filename)
+//             .setFfmpegPath(ffmpeg_static)
             
-            // var proc = ffmpeg('rtmp://path/to/live/stream', { timeout: 432000 })
-            .output(savepath)
-            .outputOptions([
-              // '-codec: copy',
-              '-hls_time 5',
-              '-hls_list_size 0',
-              '-hls_playlist_type vod',
-              // '-hls_base_url http://localhost:8080/',
-              '-hls_segment_filename '+ downloadpath +'%03d.ts'
-            ])
-            // set video bitrate
-            .videoBitrate(1500)
-            // set h264 preset
-            // .addOption('preset','superfast')
-            // set target codec
-            .videoCodec('libx264')
-            // set audio bitrate
-            // .audioCodec('libfdk_aac')
-            .audioBitrate('128k')
-            // set audio codec
-            // .audioCodec('libmp3lame')
-            // set number of audio channels
-            .audioChannels(2)
-            .withSize('1280x720')
-            // set hls segments time
-            // .addOption('-hls_time', 10)
-            // // include all the segments in the list
-            // .addOption('-hls_list_size',0)
-            // setup event handlers
-            .on('end', () => {
-                console.log("done squeezin video");
-                try {
-                  fs.unlinkSync(downloadpath + filename);
-                  console.log("deleting original file");
-                  //file removed
-                } catch(err) {
-                  console.error(err)
-                }
-                fs.readdir(downloadpath, (err, files) => {
-                  if (err != null) {
-                    console.log("error reading directory " + err);
-                  } else {
-                    files.forEach(file => {
-                        console.log(file);
-                        if (path.extname(file) == '.ts') {
-                          s3.putObject({
-                            Bucket: process.env.ROOT_BUCKET_NAME,
-                            Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"/hls/" + file,
-                            Body: fs.readFileSync(downloadpath + file),
-                            ContentType: 'video/MP2T'
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded ts file with response: ' + JSON.stringify(resp));
-                              }
-                          });
-                        } else if (path.extname(file) == '.m3u8') {
-                          s3.putObject({
-                            Bucket: process.env.ROOT_BUCKET_NAME,
-                            Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"/hls/" + file,
-                            Body: fs.readFileSync(downloadpath + file),
-                            ContentType: 'application/x-mpegURL'
-                            }, function (error, resp) {
-                              if (error) {
-                                console.log('error putting  pic' + error);
-                              } else {
-                                console.log('Successfully uploaded m3u8 response: ' + JSON.stringify(resp));
-                              }
-                          });
-                      }
-                    });
-                  }
-                });
-              //   s3.putObject({
-              //     Bucket: process.env.ROOT_BUCKET_NAME,
-              //     Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + video_item._id +"."+path.parse(video_item.filename).name + ".ogg",
-              //     Body: fs.readFileSync('tmp.m3u8'),
-              //     ContentType: 'application/x-mpegURL'
-              //   }, function (error, resp) {
-              //     if (error) {
-              //       console.log('error putting  pic' + error);
-              //     } else {
-              //       console.log('Successfully uploaded  video with response: ' + JSON.stringify(resp));
-              //     }
-              // });
-            })
-            .on('error', err => {
-                console.error("err: " + err);
-                res.send("error! " + err);
-            })
-            .on('progress', function(info) {
-                console.log('progress ' + JSON.stringify(info));
-                if (!hasSentResponse) {
-                  hasSentResponse = true;
-                  res.send("processing");
-                }
-            })
-            .run();
-        })();
-        }
-      });
-    }
-    });
-});
+//             // var proc = ffmpeg('rtmp://path/to/live/stream', { timeout: 432000 })
+//             .output(savepath)
+//             .outputOptions([
+//               // '-codec: copy',
+//               '-hls_time 5',
+//               '-hls_list_size 0',
+//               '-hls_playlist_type vod',
+//               // '-hls_base_url http://localhost:8080/',
+//               '-hls_segment_filename '+ downloadpath +'%03d.ts'
+//             ])
+//             // set video bitrate
+//             .videoBitrate(1500)
+//             // set h264 preset
+//             // .addOption('preset','superfast')
+//             // set target codec
+//             .videoCodec('libx264')
+//             // set audio bitrate
+//             // .audioCodec('libfdk_aac')
+//             .audioBitrate('128k')
+//             // set audio codec
+//             // .audioCodec('libmp3lame')
+//             // set number of audio channels
+//             .audioChannels(2)
+//             .withSize('1280x720')
+//             // set hls segments time
+//             // .addOption('-hls_time', 10)
+//             // // include all the segments in the list
+//             // .addOption('-hls_list_size',0)
+//             // setup event handlers
+//             .on('end', () => {
+//                 console.log("done squeezin video");
+//                 try {
+//                   fs.unlinkSync(downloadpath + filename);
+//                   console.log("deleting original file");
+//                   //file removed
+//                 } catch(err) {
+//                   console.error(err)
+//                 }
+//                 fs.readdir(downloadpath, (err, files) => {
+//                   if (err != null) {
+//                     console.log("error reading directory " + err);
+//                   } else {
+//                     files.forEach(file => {
+//                         console.log(file);
+//                         if (path.extname(file) == '.ts') {
+//                           s3.putObject({
+//                             Bucket: process.env.ROOT_BUCKET_NAME,
+//                             Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"/hls/" + file,
+//                             Body: fs.readFileSync(downloadpath + file),
+//                             ContentType: 'video/MP2T'
+//                             }, function (error, resp) {
+//                               if (error) {
+//                                 console.log('error putting  pic' + error);
+//                               } else {
+//                                 console.log('Successfully uploaded ts file with response: ' + JSON.stringify(resp));
+//                               }
+//                           });
+//                         } else if (path.extname(file) == '.m3u8') {
+//                           s3.putObject({
+//                             Bucket: process.env.ROOT_BUCKET_NAME,
+//                             Key: "users/" + audio_item.userID + "/audio/" + audio_item._id +"/hls/" + file,
+//                             Body: fs.readFileSync(downloadpath + file),
+//                             ContentType: 'application/x-mpegURL'
+//                             }, function (error, resp) {
+//                               if (error) {
+//                                 console.log('error putting  pic' + error);
+//                               } else {
+//                                 console.log('Successfully uploaded m3u8 response: ' + JSON.stringify(resp));
+//                               }
+//                           });
+//                       }
+//                     });
+//                   }
+//                 });
+//               //   s3.putObject({
+//               //     Bucket: process.env.ROOT_BUCKET_NAME,
+//               //     Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + video_item._id +"."+path.parse(video_item.filename).name + ".ogg",
+//               //     Body: fs.readFileSync('tmp.m3u8'),
+//               //     ContentType: 'application/x-mpegURL'
+//               //   }, function (error, resp) {
+//               //     if (error) {
+//               //       console.log('error putting  pic' + error);
+//               //     } else {
+//               //       console.log('Successfully uploaded  video with response: ' + JSON.stringify(resp));
+//               //     }
+//               // });
+//             })
+//             .on('error', err => {
+//                 console.error("err: " + err);
+//                 res.send("error! " + err);
+//             })
+//             .on('progress', function(info) {
+//                 console.log('progress ' + JSON.stringify(info));
+//                 if (!hasSentResponse) {
+//                   hasSentResponse = true;
+//                   res.send("processing");
+//                 }
+//             })
+//             .run();
+//         })();
+//         }
+//       });
+//     }
+//     });
+// });
+
+
 // app.get("/stream_vid/", cors(corsOptions), requiredAuthentication, function (req, res) {
 //     //send "Hello World" to the client as html
 //     // console.log("trina scrape...");

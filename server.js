@@ -86,6 +86,9 @@ var db = mongojs(databaseUrl, collections);
 
     app.use(express.static(path.join(__dirname, './'), { maxAge: oneDay }));
 
+    app.use(express.static(path.join(__dirname, './main/css/bootstrap5.3/assets'), { maxAge: oneDay }));
+    
+
     app.use(function(req, res, next) {
 
         res.header('Access-Control-Allow-Origin', '*');
@@ -2508,22 +2511,25 @@ function DownloadMinioFile (bucket, key, location) {
   });
 }
 
+app.get('/process_video_hls_local', cors(corsOptions), requiredAuthentication, function (req, res) {
+  // ProcessLocalVideoHLS("/Volumes/SM_FAT2/movies/360/youngAndDumb_20230925/youngAndDumb_20230925_2.mp4");
 
-  function ProcessLocalVideoHLS(fullpath) {
-
+  // function ProcessLocalVideoHLS(fullpath) {
+    // if (req.session.user) {
       (async () => {
+        fullpath = "/Volumes/SM_FAT2/movies/360/youngAndDumb_20230925/youngAndDumb_20230925_2.mp4";
         var ts = Math.round(Date.now() / 1000);
-                // let downloadpath = ""; //set local folder
+                let downloadpath = path.dirname(fullpath)  //set local folder
                 
-                // let filename = ""; // set local filename (*.mp4)
+                let filename = path.basename(fullpath); // set local filename (*.mp4)
 
                 
                 // if (!fs.existsSync(downloadpath)){
                 //     // fs.mkdirSync(downloadpath);
                 //     console.log(downloadpath  + " filepath doesn't exist!");
                 // }
-                let savepath = downloadpath + 'output.m3u8';
-                console.log("tryna save hls to " + savepath);
+                let savepath = 'output.m3u8'; //local
+                console.log("tryna save hls to " + downloadpath + " filename " + filename);
 
             // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
             // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
@@ -2543,7 +2549,7 @@ function DownloadMinioFile (bucket, key, location) {
               '-hls_list_size 0',
               '-hls_playlist_type vod',
               // '-hls_base_url http://localhost:8080/',
-              '-hls_segment_filename '+ ts +'%03d.ts'
+              '-hls_segment_filename '+ downloadpath +'%03d.ts'
             ])
             // set video bitrate
             .videoBitrate(2500)
@@ -2558,7 +2564,7 @@ function DownloadMinioFile (bucket, key, location) {
             // .audioCodec('libmp3lame')
             // set number of audio channels
             .audioChannels(2)
-            .withSize('4096x2048')
+            .withSize('4096x2048') //4k equirect
             // set hls segments time
             // .addOption('-hls_time', 10)
             // // include all the segments in the list
@@ -2626,10 +2632,11 @@ function DownloadMinioFile (bucket, key, location) {
                           });
 
                           }
-                    });
-                  }
+                        });
+                   
+                  } 
                 });
-
+             
             })
             .on('error', err => {
                 console.error("err: " + err);
@@ -2637,12 +2644,13 @@ function DownloadMinioFile (bucket, key, location) {
             })
             .on('progress', function(info) {
                 console.log('progress ' + JSON.stringify(info));
-
             })
             .run();
-      
-      })(); //end async  
-  }
+        })(); //end async   
+      // } else {
+      //   console.log("no user");
+      // }
+  });
 
 app.get('/process_video_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {
   console.log("tryna process video : " + req.params._id);

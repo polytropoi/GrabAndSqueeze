@@ -16,6 +16,7 @@ var express = require("express")
     , http = require("http")
     , fs = require("fs")
     , session = require('express-session')
+    , cookieParser = require('cookie-parser')
     , minio = require('minio')
     , bodyParser = require('body-parser')
     , mongojs = require("mongojs")
@@ -54,6 +55,9 @@ var corsOptions = {
     }
   }
 }
+
+app.use(cookieParser());
+// app.use(express.cookieSession());
     // app.use (function (req, res, next) {
     //     var schema = (req.headers['x-forwarded-proto'] || '').toLowerCase();
     //     if (schema === 'https') {

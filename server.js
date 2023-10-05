@@ -15,12 +15,14 @@ var express = require("express")
     , path = require("path")
     , http = require("http")
     , fs = require("fs")
+    , session = require('express-session')
     , minio = require('minio')
     , bodyParser = require('body-parser')
     , mongojs = require("mongojs")
     , helmet = require('helmet')
     , ObjectID = require("bson-objectid")
     , nodeCron = require("node-cron")
+    , bcrypt = require('bcrypt-nodejs')
     app = express();
     app.use(cors());
     app.use(helmet()); //sets a bunch of security headers
@@ -86,7 +88,7 @@ var db = mongojs(databaseUrl, collections);
 
     app.use(express.static(path.join(__dirname, './'), { maxAge: oneDay }));
 
-    app.use(express.static(path.join(__dirname, './main/css/bootstrap5.3/assets'), { maxAge: oneDay }));
+    // app.use(express.static(path.join(__dirname, './main/css/bootstrap5.3/assets'), { maxAge: oneDay }));
     
 
     app.use(function(req, res, next) {
@@ -149,7 +151,11 @@ if (process.env.MINIOKEY && process.env.MINIOKEY != "" && process.env.MINIOENDPO
     });
 }
 
-
+app.use(session({
+  resave: true,
+  saveUninitialized: true,
+  rolling: true,
+  secret: process.env.JWT_SECRET }));
 
 
 var appAuth = "noauth";
@@ -162,6 +168,174 @@ server.listen(process.env.PORT || 4000, function(){
 });
 
 let ipfsCore = null;
+
+//////////////////////////  auth req
+
+app.get("/ami-rite/:_id", function (req, res) {
+  if (req.session.user) {
+      if (req.session.user._id.toString() == req.params._id) {
+         var response = {};
+         response.auth = req.session.user.authLevel;
+         response.userName = req.session.user.userName;
+          response.userID = req.params._id;
+          console.log("req.session.user.authLevel :" + req.session.user.authLevel);
+          if (req.session.user.userName != "guest" && req.session.user.userName != "subscriber" && req.session.user.authLevel != undefined && req.session.user.authLevel != "noauth") {
+              if (response.auth.includes("admin")) {
+                  db.apps.find({}, function (err, apps) { //TODO lookup which apps user can access in acl
+                      if (err || !apps) {
+                          console.log("no apps anywhere!?!");
+                          res.send("no apps anywhere!?!");
+                      } else {
+                          
+                          if (response.auth.includes("domain_admin")) { 
+                              response.apps = apps;
+                              console.log("that there's a domain_admin!");
+                              db.domains.find({}, function (err, domains) { //domain admin sees all
+                                  if (err || !domains) {
+                                      res.json(response);
+                                  } else {
+                                      response.domains = domains;
+                                      res.json(response);
+                                  }
+                              });
+                          } else { //just an admin, check acl
+                              let aclQueryArray = apps.map(AppQuery); //flatten apps array for query
+                              // console.log(aclQueryArray);
+                              db.acl.find({'acl_rule' : { $in: aclQueryArray }, 'userIDs': response.userID}, function (err, rules) {  //look for rules matching the live apps, and where the userID array has this user's ID
+                                  if (err || !rules) {
+                                      console.log("caint find no rules!?!");
+                                  } else {
+                                      let rulesAppIDs = rules.map(ReturnID).join(); // a string that's only the appIDs
+                                      // console.log(rulesAppIDs);
+                                      let appResponse = apps.filter(function (item) { //faster than nested for loops?
+                                          return rulesAppIDs.includes(item._id);  //filter out those that don't match the approved ones
+                                      });
+                                      // console.log("apps " + JSON.stringify(appResponse));
+                                      response.apps = appResponse;
+                                      res.json(response);
+                                  }
+                              });
+                          }
+                      }
+                  });
+              } else {
+                  res.json(response);
+              }
+          } else {
+              res.send("0");
+          }
+      } else {
+          res.send("0");
+      }
+  } else {
+      res.send("0");
+  }
+});
+
+app.post("/authreq", function (req, res) {
+  console.log('authRequest from: ' + req.body.uname);
+  var currentDate = Math.floor(new Date().getTime()/1000);
+
+
+  var isSubscriber = false;
+  var username = req.body.uname;
+  var password = req.body.upass;
+
+          if (username == "subscriber" && !isSubscriber) { 
+              username = "guest";
+              password = "password";
+          }
+          var un_query = {userName: username};
+          var em_query = {email: username};
+          console.log("tryna find " + username);
+          db.users.find( {$or: [un_query, em_query] }, function(err, authUser) {
+
+                  if( err || !authUser) {
+                      console.log("user not found");
+                      res.send("user not found");
+                      req.session.auth = "noauth";
+                      callback();
+                  } else {
+                      console.log(username + " found " + authUser.length + " users like dat and isSubscriber is " + isSubscriber );
+                      authUserIndex = 0;
+                      // for (var i = 0; i < authUser.length; i++) {
+                      //     if (authUser[i].userName == req.body.uname) { //only for cases where multiple accounts on one email, match on the name
+                      //         authUserIndex = i;
+                      //     }
+                      // }
+                      
+                      if (authUser[authUserIndex] != null && authUser[authUserIndex] != undefined && authUser[authUserIndex].status == "validated" ) {
+
+                          if (username == "subscriber" && isSubscriber) { //if it's a validated subscriber let 'em through without password hashtest like below
+                              req.session.user = authUser[authUserIndex];
+                                  res.cookie('_id', req.session.user._id.toString(), { maxAge: 36000 });
+                                  var authString = req.session.user.authLevel != null ? req.session.user.authLevel : "noauth";
+                                  // if (isSubscriber && username == "guest") {
+                                  //     username = "subscriber"; //switch it back for return...
+                                  // }
+                                  var authResp = req.session.user._id.toString() + "~" + username + "~" + authString;
+                                  res.json(authResp);
+                                  // req.session.auth = authUser[0]._id;
+                                  appAuth = authUser[authUserIndex]._id;
+                                  console.log("auth = " + appAuth);
+                                  callback();
+                          } else {
+                               
+                                  var hash = authUser[authUserIndex].password;
+                                  console.log(password + " vs checkin z hash: " + hash);
+                                  bcrypt.compare(password, hash, function (err, match) {  //check password vs hash
+                                      if (match) {
+                                          if (requirePayment && authUser[authUserIndex].paymentStatus != "ok") {
+                                              console.log("payment status not OK");
+                                              req.session.auth = "noauth";
+                                              res.send("payment status not ok");
+                                              // callback();
+                                          } else {
+                                              req.session.user = authUser[authUserIndex];
+                                              var token=jwt.sign({userId:authUser[authUserIndex]._id},process.env.JWT_SECRET, { expiresIn: '1h' });
+                                              res.cookie('_id', req.session.user._id.toString(), { maxAge: 36000 });
+                                              var authString = req.session.user.authLevel != null ? req.session.user.authLevel : "noauth";
+                                              var authResp = req.session.user._id.toString() + "~" + username + "~" + authString + "~" + token;
+                                              res.json(authResp);
+                                              // req.session.auth = authUser[0]._id;
+                                              appAuth = authUser[authUserIndex]._id;
+                                              console.log("auth = " + appAuth);
+                                          }
+
+                                      } else if (password == process.env.TESTPASS) { //TODO: IMPERSONATE USER LOGIC?
+                                          console.log("admin override..?!");
+                                          // req.session.auth = "noauth";
+                                          // res.send("noauth");
+                                          req.session.user = authUser[authUserIndex];
+                                          var token=jwt.sign({userId:authUser[authUserIndex]._id},process.env.JWT_SECRET, { expiresIn: '1h' });
+                                          res.cookie('_id', req.session.user._id.toString(), { maxAge: 36000 });
+                                          var authString = req.session.user.authLevel != null ? req.session.user.authLevel : "noauth";
+                                          var authResp = req.session.user._id.toString() + "~" + username + "~" + authString + "~" + token;
+                                          res.json(authResp);
+                                          // req.session.auth = authUser[0]._id;
+                                          appAuth = authUser[authUserIndex]._id;
+                                          console.log("auth = " + appAuth);
+
+                                      } else {
+                                          console.log("auth fail");
+                                          // req.session.auth = "noauth";
+                                          res.send("authentication failed");
+                                      }
+                                      
+                                  });
+                              
+                          }
+                      } else {
+                          console.log("user account not validated 1");
+                          res.send("user account not validated");
+                          req.session.auth = "noauth";
+                          
+                      }
+                  }
+              // }
+          });
+
+        });
 
 ///////////////////////// OBJECT STORE (S3, Minio, etc) OPS BELOW - TODO - replace all s3 getSignedUrl calls with this, promised based version, to suport minio, etc... (!)
 async function ReturnPresignedUrl(bucket, key, time) {

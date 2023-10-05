@@ -7,9 +7,9 @@
     <meta name="description" content="">
     <meta name="author" content="Mark Otto, Jacob Thornton, and Bootstrap contributors">
     <meta name="generator" content="Hugo 0.118.2">
-    <title>Signin Template · Bootstrap v5.3</title>
+    <title>Grab & Squeeze Signin</title>
 
-    <link rel="canonical" href="https://getbootstrap.com/docs/5.3/examples/sign-in/">
+
 
     
 
@@ -98,7 +98,7 @@
 
     
     <!-- Custom styles for this template -->
-    <link href="css/sign-in.css" rel="stylesheet">
+    <link href="css/sign-in.css" type="text/stylesheet" rel="stylesheet">
   </head>
   <body class="d-flex align-items-center py-4 bg-body-tertiary">
     <svg xmlns="http://www.w3.org/2000/svg" class="d-none">
@@ -159,12 +159,12 @@
           </div> -->
           <div class="col">
             
-            <form>
+                <form action="" id="loginForm">
 
                 <h1 class="h3 mb-3 fw-normal">Enter credentials to login:</h1>
             
                 <div class="form-floating">
-                  <input type="email" class="form-control" id="uname" placeholder="name@example.com">
+                  <input type="text" class="form-control" id="uname" placeholder="name@example.com">
                   <label for="floatingInput">Email address or Username</label>
                 </div>
                 <div class="form-floating">
@@ -179,7 +179,7 @@
                   </label>
                 </div>
                 <!-- <button class="btn btn-primary w-100 py-2" type="submit">Sign in</button> -->
-                <button onclick="authreq();" class="btn btn-primary btn-user btn-block">
+                <button id="loginbutton" type="submit" class="btn btn-primary btn-user btn-block">
                     Login
                   </button>
                
@@ -198,14 +198,16 @@
 <script src="css/bootstrap5.3/assets/dist/js/bootstrap.bundle.min.js" type="text/javascript"></script>
 
  <!-- Bootstrap core JavaScript-->
- <script src="vendor/jquery/jquery.min.js"></script>
+ <!-- <script src="https://code.jquery.com/jquery-3.1.1.min.js" integrity="sha256-hVVnYaiADRTO2PzUGmuLJr8BLUSjGIZsDYGmIJLv2b8=" crossorigin="anonymous"></script> -->
 
 
  <!-- Core plugin JavaScript-->
  <!-- <script src="vendor/jquery-easing/jquery.easing.min.js"></script> -->
- <script src="vendor/jscookie/js.cookie.min.js"></script>
+ <script src="js/js.cookie.min.js"></script>
+ <script src="js/jquery.min.js"></script>
+<script src="js/authreq.js"></script> 
 
- <script>
+ <!-- <script>
    var hostname = "";
    var cookie = Cookies.get();
    function authreq() {
@@ -239,7 +241,7 @@
          }
        });
      }
- </script>
+ </script> -->
 
     </body>
 </html>

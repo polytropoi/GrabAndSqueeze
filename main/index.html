@@ -239,13 +239,13 @@
             <li class="nav-item">
               <a class="nav-link d-flex align-items-center gap-2 active" aria-current="page" href="index.html?type=encode_video">
                 <svg class="bi"><use xlink:href="#house-fill"/></svg>
-                Encode Local Video
+                Encode Video
               </a>
             </li>
             <li class="nav-item">
-              <a class="nav-link d-flex align-items-center gap-2" href="#">
-                <svg class="bi"><use xlink:href="#file-earmark"/></svg>
-                Orders
+              <a class="nav-link d-flex align-items-center gap-2 active" aria-current="page" href="index.html?type=encode_video_local_path">
+                <svg class="bi"><use xlink:href="#house-fill"/></svg>
+                Encode Local Video
               </a>
             </li>
             <li class="nav-item">
@@ -346,9 +346,30 @@
             
       </div>
 
-      <div id="encodeVideoPanel" style="display:none;" class="container-fluid"> 
-        <label for="formFile" class="form-label">Select Video to Encode</label>
-        <input class="form-control" type="file" id="formFile">
+      <div id="encodeVideoPanel" style="display:none;" class="container-fluid">  
+        <form id="videoForm">
+          <label for="formFile" class="form-label">Select Video to Encode</label>
+          <input class="form-control" type="file" id="videoInput">
+
+          <div id="videoPreview">
+            <p>No files currently selected for upload</p>
+          </div>
+          <div>
+            <button id="videoSubmitButton" type="button" style="display:none;" class="btn btn-sm btn-outline-secondary">Submit</button>
+          </div>
+        </form>
+      </div>
+
+
+      <div id="encodeVideoPanelLocalPath" style="display:none;" class="container-fluid"> 
+        <form id="videoLocalPathForm">
+          <label for="formFile" class="form-label">Enter Path to Local Video to Encode</label>
+          <input class="form-control" type="text" id="videoPathInput">
+
+          <div>
+            <button id="videoLocalPathSubmitButton" type="submit" class="btn btn-sm btn-outline-secondary">Submit</button>
+          </div>
+        </form>
       </div>
       
 

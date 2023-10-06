@@ -26,11 +26,20 @@ var express = require("express")
     , bcrypt = require('bcrypt-nodejs')
     app = express();
     app.use(cors());
-    app.use(helmet()); //sets a bunch of security headers
+    // app.use(helmet()); //sets a bunch of security headers
     // app.use(helmet.frameguard());
     require('dotenv').config();
 
+    app.use(helmet.dnsPrefetchControl());
+    app.use(helmet.expectCt());
 
+    app.use(helmet.hidePoweredBy());
+    app.use(helmet.hsts());
+    app.use(helmet.ieNoOpen());
+    app.use(helmet.noSniff());
+    app.use(helmet.permittedCrossDomainPolicies());
+    app.use(helmet.referrerPolicy());
+    app.use(helmet.xssFilter());
 var rootHost = process.env.ROOT_HOST;
 var appName = "ServiceMedia";
 var topName = process.env.ROOT_NAME;
@@ -41,11 +50,11 @@ var adminEmail = process.env.ADMIN_EMAIL;
 var domainAdminEmail = process.env.DOMAIN_ADMIN_EMAIL;
 
 
-var whitelist = ['https://servicemedia.net', 'http://localhost:4000'];
+// var whitelist = ['https://servicemedia.net', 'http://localhost:4000'];
 
 var oneDay = 86400000;
 
-var whitelist = ['https://servicemedia.net', 'http://localhost:3000']
+var whitelist = ['https://servicemedia.net', 'http://localhost:4000']
 var corsOptions = {
   origin: function (origin, callback) {
     if (whitelist.indexOf(origin) !== -1 || !origin) {
@@ -490,19 +499,19 @@ function requiredAuthentication(req, res, next) { //used as argument in routes b
     //         res.send('payment status not OK');       
     //     }
     // }
-    // if (req.session.user && req.session.user.status == "validated") { //check using session cookie
-    //     if (requirePayment) { 
-    //         if (req.session.user.paymentStatus == "ok") {
-    //             next();
-    //         } else {
-    //             req.session.error = 'Access denied! - payment status not ok';
-    //             res.send('payment status not OK');       
-    //         }
-    //     } else {
-    //         console.log("authenticated!");
-    //         next();
-    //     }
-    // } else {
+    if (req.session.user && req.session.user.status == "validated") { //check using session cookie
+        if (requirePayment) { 
+            if (req.session.user.paymentStatus == "ok") {
+                next();
+            } else {
+                req.session.error = 'Access denied! - payment status not ok';
+                res.send('payment status not OK');       
+            }
+        } else {
+            console.log("authenticated!");
+            next();
+        }
+    } else {
       if (req.headers['x-access-token'] != null) {  //check using json web token
           var token = req.headers['x-access-token'];
           console.log("req.headers.token: " + token);
@@ -547,7 +556,7 @@ function requiredAuthentication(req, res, next) { //used as argument in routes b
           console.log("authentication failed! No cookie or token found");
           res.send('noauth');
       }
-  // }
+  }
 }
 
 function validURL(str) {
@@ -2689,32 +2698,22 @@ function DownloadMinioFile (bucket, key, location) {
   });
 }
 
-app.get('/process_video_hls_local', cors(corsOptions), requiredAuthentication, function (req, res) {
-  // ProcessLocalVideoHLS("/Volumes/SM_FAT2/movies/360/youngAndDumb_20230925/youngAndDumb_20230925_2.mp4");
+app.post('/process_video_hls_local', cors(corsOptions), requiredAuthentication, function (req, res) {
 
-  // function ProcessLocalVideoHLS(fullpath) {
-    // if (req.session.user) {
+    let fullpath = req.body.fullpath;
+    if (fs.existsSync(fullpath)){
+    
+      if (req.session.user && process.env.LOCAL_TEMP_FOLDER != undefined && process.env.LOCAL_TEMP_FOLDER != "") {
       (async () => {
-        fullpath = "/Volumes/SM_FAT2/movies/360/youngAndDumb_20230925/youngAndDumb_20230925_2.mp4";
+        // fullpath = "";
         var ts = Math.round(Date.now() / 1000);
                 let downloadpath = path.dirname(fullpath)  //set local folder
                 
                 let filename = path.basename(fullpath); // set local filename (*.mp4)
 
-                
-                // if (!fs.existsSync(downloadpath)){
-                //     // fs.mkdirSync(downloadpath);
-                //     console.log(downloadpath  + " filepath doesn't exist!");
-                // }
                 let savepath = 'output.m3u8'; //local
                 console.log("tryna save hls to " + downloadpath + " filename " + filename);
 
-            // let data = await s3.getObject(params).promise().then().catch({if (err){return}});
-            // await fs.writeFile(downloadpath, data).promise().then().catch({if (err){return}});
-            // let data = await s3.getObject(params).createReadStream();
-            // await DownloadS3File(params, downloadpath + filename);
-            
-            //await DownloadS3File(params, downloadpath + filename).then().catch({if (err){return}});
             
             ffmpeg(fullpath)
             .setFfmpegPath(ffmpeg_static)
@@ -2825,9 +2824,13 @@ app.get('/process_video_hls_local', cors(corsOptions), requiredAuthentication, f
             })
             .run();
         })(); //end async   
-      // } else {
-      //   console.log("no user");
-      // }
+      } else {
+        console.log("no user or temp_folder not defined");
+      }
+    } else {
+      console.log("filenotfound!");
+    }
+      
   });
 
 app.get('/process_video_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {

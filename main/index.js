@@ -7,6 +7,10 @@ var itemid = getParameterByName("iid", window.location.href);
 var mode = getParameterByName("mode", window.location.href);
 var parent = getParameterByName("parent", window.location.href);
 var aframe_enviro = getParameterByName("env", window.location.href);
+
+const videoInput = document.getElementById("videoInput");
+const videpPreview = document.getElementById("videoPreview");
+
 var userid = "";
 var username = "";
 var auth = "";
@@ -122,7 +126,7 @@ function bigSwitch() { //light up proper elements and get the stuff
     if (type == null) {
         $("#topPage").show();
         $("#pageTitle").html("");
-        showDashBoid();
+        // showDashBoid();
     } else {
         $("#topPage").hide();
     }
@@ -145,24 +149,119 @@ function bigSwitch() { //light up proper elements and get the stuff
         $("#pageTitle").html("Dashboard - " + username);
         // getProfile();
     break;    
-        case "encode_video": //uses :appid param
+    
+    case "encode_video": //uses :appid param
         $("#topPage").show();
         // $("#topPage").html("Ent");
         $("#pageTitle").html("Encode Video");
         EncodeVideo();
-
-        // getWebXRScene();
     break;    
-    case "appdash": //uses :appid param
-        $("#cards").show();
-        // getAppDash();
-    break;       
+    
+    case "encode_video_local_path": //uses :appid param
+    $("#topPage").show();
+    // $("#topPage").html("Ent");
+    $("#pageTitle").html("Encode Video");
+    EncodeVideoLocalPath();
+break;    
    
     }
 }
 
 function EncodeVideo () {
     $("#encodeVideoPanel").show();
+    videoInput.addEventListener("change", updateVideoDisplay);
+}
+
+function EncodeVideoLocalPath () {
+
+    $("#encodeVideoPanelLocalPath").show();
+    // $("#encodeVideoPanelLocalPath").show();
+    // id="videoLocalPathSubmitButton"  
+    // videoInput.addEventListener("change", updateVideoDisplay);
+    document.getElementById("videoLocalPathForm").addEventListener('submit', submitVideoLocalPath);
 
 }
 
+function submitVideoLocalPath(e) {
+    document.getElementById("videoLocalPathSubmitButton").style.display = "hidden";
+    e.preventDefault();
+    let path = document.getElementById("videoPathInput").value;
+    console.log(path);
+
+    var vpost = $.ajax({
+        url: hostname + "/process_video_hls_local",
+        type: 'POST',
+          contentType: "application/json; charset=utf-8",
+        dataType: "json",
+        data: JSON.stringify({
+              path: path
+                            // param2: $('#textbox2').val()
+            }),
+          success: function( data, textStatus, xhr ){
+              console.log(data);
+     
+          },
+          error: function( xhr, textStatus, errorThrown ){
+              console.log("error! " + xhr.responseText );
+
+            }
+          });
+}
+
+
+
+function updateVideoDisplay() {
+//   while (preview.firstChild) {
+//     preview.removeChild(preview.firstChild);
+//   }
+
+  const curFiles = videoInput.files;
+  if (curFiles.length === 0) {
+    const para = document.createElement("p");
+    para.textContent = "No files currently selected for upload";
+    preview.appendChild(para);
+  } else {
+    document.getElementById("videoSubmitButton").style.display = 'block';
+    const list = document.createElement("ol");
+    videoPreview.appendChild(list);
+
+    for (const file of curFiles) {
+      const listItem = document.createElement("li");
+      const para = document.createElement("p");
+      if (videoFileType(file)) {
+        para.textContent = `File name ${file.name}, file size ${returnFileSize(
+          file.size,
+        )}.`;
+        const image = document.createElement("img");
+        image.src = URL.createObjectURL(file);
+
+        listItem.appendChild(image);
+        listItem.appendChild(para);
+      } else {
+        para.textContent = `File name ${file.name}: Not a valid file type. Update your selection.`;
+
+        }
+    
+        }
+    }
+  }
+// }
+
+// https://developer.mozilla.org/en-US/docs/Web/Media/Formats/Image_types
+const videoFileTypes = [
+  "video/mp4"
+];
+
+function videoFileType(file) {
+  return videoFileTypes.includes(file.type);
+}
+
+function returnFileSize(number) {
+  if (number < 1024) {
+    return `${number} bytes`;
+  } else if (number >= 1024 && number < 1048576) {
+    return `${(number / 1024).toFixed(1)} KB`;
+  } else if (number >= 1048576) {
+    return `${(number / 1048576).toFixed(1)} MB`;
+  }
+}

@@ -194,7 +194,7 @@ function submitVideoLocalPath(e) {
           contentType: "application/json; charset=utf-8",
         dataType: "json",
         data: JSON.stringify({
-              path: path
+              fullpath: path
                             // param2: $('#textbox2').val()
             }),
           success: function( data, textStatus, xhr ){

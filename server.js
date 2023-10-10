@@ -48,7 +48,7 @@ var requirePayment = true; //if subscription is required to login, true for serv
 var adminEmail = process.env.ADMIN_EMAIL;
 
 var domainAdminEmail = process.env.DOMAIN_ADMIN_EMAIL;
-
+let processing = false; //use to gate processing routes
 
 // var whitelist = ['https://servicemedia.net', 'http://localhost:4000'];
 
@@ -2699,8 +2699,10 @@ function DownloadMinioFile (bucket, key, location) {
 }
 
 app.post('/process_video_hls_local', cors(corsOptions), requiredAuthentication, function (req, res) {
-
+    if (!processing) {
+      processing = true;
     let fullpath = req.body.fullpath;
+    console.log(fullpath);
     if (fs.existsSync(fullpath)){
     
       if (req.session.user && process.env.LOCAL_TEMP_FOLDER != undefined && process.env.LOCAL_TEMP_FOLDER != "") {
@@ -2711,7 +2713,7 @@ app.post('/process_video_hls_local', cors(corsOptions), requiredAuthentication, 
                 
                 let filename = path.basename(fullpath); // set local filename (*.mp4)
 
-                let savepath = 'output.m3u8'; //local
+                let savepath = downloadpath + '/output.m3u8'; //local
                 console.log("tryna save hls to " + downloadpath + " filename " + filename);
 
             
@@ -2726,10 +2728,10 @@ app.post('/process_video_hls_local', cors(corsOptions), requiredAuthentication, 
               '-hls_list_size 0',
               '-hls_playlist_type vod',
               // '-hls_base_url http://localhost:8080/',
-              '-hls_segment_filename '+ downloadpath +'%03d.ts'
+              '-hls_segment_filename '+ downloadpath +'/file%03d.ts'
             ])
             // set video bitrate
-            .videoBitrate(2500)
+            .videoBitrate(5000)
             // set h264 preset
             // .addOption('preset','superfast')
             // set target codec
@@ -2749,11 +2751,13 @@ app.post('/process_video_hls_local', cors(corsOptions), requiredAuthentication, 
             // setup event handlers
             .on('end', () => {
                 console.log("done squeezin video");
+                // processing = false;
                 try {
                   // fs.unlinkSync(downloadpath + filename);
                   console.log("not deleting original file");
                   //file removed
                 } catch(err) {
+
                   console.error(err)
                 }
 
@@ -2761,17 +2765,17 @@ app.post('/process_video_hls_local', cors(corsOptions), requiredAuthentication, 
                   if (err != null) {
                     console.log("error reading directory " + err);
                   } else {
-
+                    let fstat = fs.statSync(downloadpath)
                     db.video_items.save({
                           userID : req.session.user._id.toString(),
                           username : req.session.user.userName,
-                          title : ts + "." + filename,
+                          title : ts + "_" + filename,
                           filename : filename,
                           item_type : 'video',
                           tags: [],
                           item_status: "private",
                           otimestamp : ts,
-                          ofilesize : size},
+                          ofilesize : fstat.size},
                       function (err, video_item) {
                           if ( err || !video_item ) {
                               console.log('video not saved..');
@@ -2783,7 +2787,7 @@ app.post('/process_video_hls_local', cors(corsOptions), requiredAuthentication, 
                                 s3.putObject({
                                   Bucket: process.env.ROOT_BUCKET_NAME,
                                   Key: "users/" + video_item.userID + "/video/" + video_item._id +"/hls/" + file,
-                                  Body: fs.readFileSync(downloadpath + file),
+                                  Body: fs.readFileSync(downloadpath + "/" + file),
                                   ContentType: 'video/MP2T'
                                   }, function (error, resp) {
                                     if (error) {
@@ -2830,7 +2834,9 @@ app.post('/process_video_hls_local', cors(corsOptions), requiredAuthentication, 
     } else {
       console.log("filenotfound!");
     }
-      
+  } else {
+    console.log("already processing local hls");
+  }
   });
 
 app.get('/process_video_hls/:_id', cors(corsOptions), requiredAuthentication, function (req, res) {

@@ -186,7 +186,15 @@ function submitVideoLocalPath(e) {
     document.getElementById("videoLocalPathSubmitButton").style.display = "hidden";
     e.preventDefault();
     let path = document.getElementById("videoPathInput").value;
-    console.log(path);
+    let encoding = "HD"
+    let radios = document.querySelectorAll('input[type="radio"]');
+    for (let radio of radios) {
+      if (radio.checked) {
+        encoding = radio.value;
+      }
+    }
+
+    console.log(path + " " + encoding);
 
     var vpost = $.ajax({
         url: hostname + "/process_video_hls_local",
@@ -194,7 +202,8 @@ function submitVideoLocalPath(e) {
           contentType: "application/json; charset=utf-8",
         dataType: "json",
         data: JSON.stringify({
-              fullpath: path
+              fullpath: path,
+              encoding: encoding
                             // param2: $('#textbox2').val()
             }),
           success: function( data, textStatus, xhr ){
